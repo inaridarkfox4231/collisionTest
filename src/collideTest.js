@@ -566,10 +566,10 @@ class pattern extends flow{
     this._qTree.clear(); // 線型四分木のクリア
     let collisionOccur = false; // 衝突が起こるかどうか
     this.actors.forEach((a) => {
-      if(a.isActive){
+      if(a.visible){
         this._qTree.addActor(a); // 登録
         collisionOccur = true;
-      } // activeなものしか登録しない
+      } // visibleなものしか登録しない
     });
     if(collisionOccur){
       this._hitTest(); // 判定する
@@ -788,12 +788,12 @@ function createPattern(index, _pattern){
     let _wanderFlow = new wanderCircleFlow();
     let creatures = [];
     for(let i = 0; i < 100; i++){
-      let _creature = new circleCreature(50 + randomInt(270), 50 + randomInt(380), 10 + randomInt(20), 0);
+      let _creature = new circleCreature(50 + randomInt(220), 50 + randomInt(380), 10 + randomInt(10), 0);
       _creature.setFlow(_wanderFlow);
       creatures.push(_creature);
     }
     for(let i = 0; i < 100; i++){
-      let _creature = new circleCreature(320 + randomInt(270), 50 + randomInt(380), 10 + randomInt(20), 5);
+      let _creature = new circleCreature(370 + randomInt(220), 50 + randomInt(380), 10 + randomInt(10), 5);
       _creature.setFlow(_wanderFlow);
       creatures.push(_creature);
     }
