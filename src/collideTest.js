@@ -14,7 +14,6 @@ let hueSet = [];
 let clickPosX;
 let clickPosY;
 let keyFlag;
-let myCanvas;
 
 let collisionCount;
 
@@ -36,7 +35,7 @@ document.body.appendChild(renderCounter);
 document.body.appendChild(collisionCounter);
 
 function setup(){
-  myCanvas = createCanvas(640, 480);
+  createCanvas(640, 480);
   colorMode(HSB, 100); // hueだけでいろいろ指定出来て便利なので。
   hueSet = [0, 10, 17, 35, 52, 64, 80];
   let initialFlow = initialize(); // 初期化でもろもろ準備して最後に最初のFlowを返す
@@ -413,7 +412,8 @@ class collisionDetector {
 
 // timerは必ずしも必要ではないということで。キー入力がトリガーの場合とか。
 class actor{
-  constructor(){
+  constructor(type = 'none'){
+    this._type = type; // タイプ・・衝突判定のバリデーションに使う
     this.currentFlow = undefined;
     this.isActive = false;
     this.state = IDLE;
@@ -438,8 +438,8 @@ class actor{
 
 // creature(今までのmovingActor)
 class creature extends actor{
-  constructor(x, y){
-    super(x, y);
+  constructor(type, x, y){
+    super(type);
     this.timer = new counter();
     this.pos = createVector(x, y);
     this.vx = 2 + random(3);
@@ -452,7 +452,7 @@ class creature extends actor{
 
 class rectangleCreature extends creature{
   constructor(x, y, w, h, colorId = 0){
-    super(x, y);
+    super('rectangle', x, y);
     this._width = w;
     this._height = h;
     this.hue = hueSet[colorId];
@@ -481,7 +481,7 @@ class rectangleCreature extends creature{
 
 class circleCreature extends creature{
   constructor(x, y, r, colorId = 0){
-    super(x, y);
+    super('circle', x, y);
     this._radius = r;
     this.hue = hueSet[colorId];
     this.visual = createGraphics(2 * r, 2 * r);
@@ -506,6 +506,54 @@ class circleCreature extends creature{
     this.inActivate();
     this.pos.set(-100, -100);
     this.visible = false; // 画面外に飛ばす
+  }
+}
+
+// こっちの機体を用意しないといけない。
+// 十字キーで操作する、そこらへんはフローに書く。弾丸はストックを用意して使い終わったら戻す（100個くらいで）
+// 攻撃の種類を用意しておいてQボタンで切り替えられるようにする。とりあえず3種類くらいで。直線、3WAY、散開（5方向）。
+
+// gunは当たり判定の際に・・bulletに色が付いてて（こっちが出したか敵が出したかっていう）、
+// 向こうが出したbulletなら当たり判定ありみたいな感じにする。
+
+// 敵を用意しないといけない
+// とりあえず単純に3匹くらい出す感じで、攻撃も正面になんかとばすだけみたいな。画像はあらかじめ作っとく。
+// ジェネレータクラスを作って敵をどのくらい出すかとかそれが決める、あとどう動くかも。また弾丸の配列を保持させて
+// (100個とか用意して)、そこから全部使う、使い終わったら戻す感じで。
+
+// gunに当たったenemyBulletは消滅する(flowがundefinedになってhideでinActivate)
+// enemyBulletに当たったgunはHPが下がる(enemyBulletの与えるダメージを参照して減らすHPが決まる)(0より小さくならない)
+// アイテムを取ってHPの減り方が変わったりして
+// playerBulletに当たったenemyはHPが下がる(playerBulletの与えるダメージを参照して・・HPが0になったら消滅)
+// enemyに当たったplayerBulletは消滅する
+// つまり組み合わせ10通りのうち・・んー。順番考慮すると12通りね。ID管理したほうがよさそう。0, 1, 2, 3とか。
+
+// gunとenemyBullet, enemyとplayerBullet, とりあえずこれだけ。あとはすべてスルー。
+// if(4つの（順番考慮）ケースでバリデーション){ continue; }
+
+class gun extends actor{
+  constructor(){
+    super('gun');
+
+  }
+}
+
+class bullet extends actor{
+  constructor(){
+    // 'playerBullet'か'enemyBullet'かは引数で分岐させる
+    super('bullet');
+  }
+}
+
+class enemyGenerator extends actor{
+  constructor(){
+    super('enemyGenerator');
+  }
+}
+
+class enemy extends actor{
+  constructor(){
+    super('enemy');
   }
 }
 
@@ -631,6 +679,7 @@ class pattern extends flow{
       const collider1  = cellColliderCahce[i]; // キャッシュから取ってくる。
       for(let j=i+1; j < length; j++) {
         const obj2 = cell[j];
+        // ここでobj1, obj2の性質によるバリデーションかけてfalseならcontinue
 
         // キャッシュから取ってくる。
         // ループ初回は直接取得してキャッシュに入れる。
@@ -660,6 +709,7 @@ class pattern extends flow{
       const collider1 = obj.myCollider; // 直接取得する。
       for(let j=0; j<cellLength; j++) {
         const cellObj = cell[j];
+        // objとcellobjの性質からバリデーションかけてfalseならcontinue.
         const collider2 = cellColliderCahce[j]; // キャッシュから取ってくる。
         const hit = this._detector.detectCollision(collider1, collider2);
 
@@ -787,12 +837,12 @@ function createPattern(index, _pattern){
   }else if(index === 2){
     let _wanderFlow = new wanderCircleFlow();
     let creatures = [];
-    for(let i = 0; i < 100; i++){
+    for(let i = 0; i < 200; i++){
       let _creature = new circleCreature(50 + randomInt(220), 50 + randomInt(380), 10 + randomInt(10), 0);
       _creature.setFlow(_wanderFlow);
       creatures.push(_creature);
     }
-    for(let i = 0; i < 100; i++){
+    for(let i = 0; i < 200; i++){
       let _creature = new circleCreature(370 + randomInt(220), 50 + randomInt(380), 10 + randomInt(10), 5);
       _creature.setFlow(_wanderFlow);
       creatures.push(_creature);
