@@ -183,6 +183,52 @@ class n_wayHub extends flow{
   }
 }
 
+// Gun用に作り替えよう。まあ、そのうち整理するけどね・・・
+// count * intervalだけのタイマーをセットする。limitまでいくとリセット。
+// すべてのタイマーは1フレームでセットし終わるので毎フレームの更新などは存在しない。
+// これは一度に到達する弾数が限定された状況に特化している。
+class limitedDelayHub extends flow{
+  constructor(interval, limit){
+    super();
+    this.interval = interval;
+    this.count = 0;
+    this.limit = limit;
+    this.initialState = PRE;
+  }
+  setVelocity(_bullet){} // ここに個別の処理を書く
+  execute(_bullet){
+    if(_bullet.state === PRE){
+      this.count++;
+      _bullet.timer.setting(this.count * this.interval);
+      if(this.count === this.limit){
+        this.count = 0; // ここをresetとでもして個別の処理を与えるとか？(ごめん勘違いバグでもなんでも無かった)
+      }
+      this.setVelocity(_bullet);
+      _bullet.state = ACT;
+    }
+    _bullet.timer.step();
+    if(_bullet.timer.getCnt() === _bullet.timer.limit){
+      this.convert(_bullet);
+    }
+  }
+}
+
+// 円を描くように発射
+class limitedCircularDelayHub extends limitedDelayHub{
+  constructor(interval, limit, r1, r2, mainAngle, diffAngle){
+    super(interval, limit);
+    this.r1 = r1;
+    this.r2 = r2;
+    this.angle = mainAngle;
+    this.diffAngle = diffAngle;
+  }
+  setVelocity(_bullet){
+    let r = this.r1 + random(this.r2 - this.r1);
+    _bullet.setVelocity(r * cos(this.angle), r * sin(this.angle));
+    this.angle += this.diffAngle;
+  }
+}
+
 // ----------------------------------------------------------------------------------------------- //
 // quadTree.
 class linearQuadTreeSpace {
@@ -504,7 +550,6 @@ class gun extends actor{
     this.bodyHue = shot['hue'];
   }
   fire(){
-    console.log('fire');
     // cost: 一度に消費する弾数
     // hue: 弾の色
     // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
@@ -546,7 +591,7 @@ class gun extends actor{
     fill(30);
     rect(this.pos.x - 15, this.pos.y - 15, 30, 30);
     fill(this.bodyHue, 100, 100);
-    rect(this.pos.x - 5, this.pos.y - 5, 10, 10);
+    rect(this.pos.x - 10, this.pos.y - 10, 20, 20);
     if(this.stock > 0){
       rect(10, 10, this.stock, 20);
     }
@@ -557,6 +602,7 @@ class gun extends actor{
     this.currentMuzzleIndex = 0;
     this.cursor = 0;
     this.wait = 0;
+    this.bodyHue = 0;
     this.magazine.forEach(function(b){ b.setFlow(undefined); })
     this.stock = this.magazine.length;
   }
@@ -584,7 +630,7 @@ class bullet extends actor{
   }
   vanish(){
     // 消滅条件. みたすときtrueを返す
-    return (this.pos.x <= 10) || (this.pos.x >= width - 10) || (this.pos.y <= 10) || (this.pos.y >= height -10);
+    return (this.pos.x <= 5) || (this.pos.x >= width - 5) || (this.pos.y <= 5) || (this.pos.y >= height -5);
   }
   inActivate(){
     this.isActive = false;
@@ -597,11 +643,12 @@ class bullet extends actor{
     push();
     fill(this.hueValue, 100, 100);
     noStroke();
-    rect(this.pos.x - 10, this.pos.y - 10, 20, 20);
+    rect(this.pos.x - 5, this.pos.y - 5, 10, 10);
     pop();
   }
 }
 
+// enemyの挙動は位置制御にする。速度持たせてもいいけど・・どうするかな。要相談。
 class enemy extends actor{
   constructor(){
     super();
@@ -715,7 +762,7 @@ class selectFlow extends flow{
     rect(100, 100 + 40 * this.nextStateIndex, 30, 30);
     fill(0, 100, 100);
     rect(140, 100, 80, 30);
-    fill(5, 100, 100);
+    fill(10, 100, 100);
     rect(140, 140, 80, 30);
   }
 }
@@ -802,12 +849,31 @@ class playFlow extends flow{
       // 追加されて行って追加されたガンは前のステージでも使えるっていうふうにしようねっていう話。
 
       // とりあえずめんどくさいので
-      let flow_0 = new setVelocityHub(5, 0);
-      flow_0.addFlow(new matrixArrow(1.05, 0, 0, 1.05, 240));
-      this._gun.registShot({cost:1, hue:0, initialFlow:flow_0, wait:10});
-      let flow_1 = new n_wayHub(10, 0, PI / 6, 1);
-      flow_1.addFlow(new matrixArrow(1.1, 0, 0, 1.1, 240));
-      this._gun.registShot({cost:3, hue:5, initialFlow:flow_1, wait:25});
+      let flow_0_0 = new setVelocityHub(3, 0);
+      let flow_0_1 = new matrixArrow(1.05, 0, 0, 1.05, 240);
+      let shot_0 = playFlow.createShot([flow_0_0, flow_0_1], 1, 0, 10);
+      this._gun.registShot(shot_0);
+
+      let flow_1_0 = new n_wayHub(10, 0, PI / 4, 1);
+      let flow_1_1 = new matrixArrow(1.01, 0, 0, 0.8, 420);
+      let shot_1 = playFlow.createShot([flow_1_0, flow_1_1], 3, 10, 25);
+      this._gun.registShot(shot_1);
+
+      let flow_2_0 = new setVelocityHub(10, 0);
+      let flow_2_1 = new matrixArrow(0.98, 0, 0, 0.98, 30)
+      let flow_2_2 = new limitedCircularDelayHub(5, 20, 4, 4, 0, PI / 10);
+      let flow_2_3 = new matrixArrow(1.01, 0, 0, 1.01, 480)
+      let shot_2 = playFlow.createShot([flow_2_0, flow_2_1, flow_2_2, flow_2_3], 20, 17, 40);
+      // まとめてflow用意してそれらをconnectしてshotにするまでをstaticかなんかでメソッドにするといいかもね。
+      this._gun.registShot(shot_2);
+
+      // もちろんいきなりこんないろいろ使えるのではなくて徐々に増やしていくんだけどとりあえず。
+      // さて次はenemyの実装。動きは言ったように位置ベースでやる。円軌道とか色々。振動とか。
+      // 動かずに攻撃しまくるのもありかな・・攻撃パターンも考えなきゃだし。攻撃の際の、
+      // bulletの消費の仕方とかもろもろは同じように実装したいけどどうなるか分かんないな。
+      // 一定フレームごとに自動的に、って流れになりそう。なんせ自動ですべて制御
+      // おやすみなさい
+
       this._gun.setFlow(new controlGun());
       this._gun.activate();
       // cost: 一度に消費する弾数
@@ -815,6 +881,13 @@ class playFlow extends flow{
       // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
       // wait: 撃ってから次に撃てるようになるまでのインターバル
     }
+  }
+  static createShot(flowSet, cost, hue, wait){
+    // shotを作る～
+    for(let i = 1; i < flowSet.length; i++){
+      flowSet[i - 1].addFlow(flowSet[i]);
+    }
+    return {cost:cost, hue:hue, initialFlow:flowSet[0], wait:wait};
   }
   reset(){
     this._gun.reset(); // gunの所に書く
