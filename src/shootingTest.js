@@ -49,7 +49,7 @@ function draw(){
 function initialize(){
   const _titleFlow = new titleFlow();
   const _selectFlow = new selectFlow();
-  const _playFlow = new playFlow(); // ステージをいくつか用意したりするかもしれないけど
+  const _playFlow = new playFlow(1); // ステージをいくつか用意したりするかもしれないけど(引数がステージ番号)
   _titleFlow.addFlow(_selectFlow);
   _selectFlow.addFlow(_titleFlow); // selectからはtitleとplayに行けるように
   _selectFlow.addFlow(_playFlow);
@@ -365,8 +365,8 @@ class collisionDetector {
 
 // timerは必ずしも必要ではないということで。キー入力がトリガーの場合とか。
 class actor{
-  constructor(type){
-    this._type = type; // タイプ・・衝突判定のバリデーションに使う
+  constructor(){
+    this._type = ""; // タイプ・・衝突判定のバリデーションに使う. 必要に応じて設定する
     this.currentFlow = undefined;
     this.isActive = false;
     this.state = IDLE;
@@ -391,12 +391,67 @@ class actor{
 
 class entity extends actor{
   constructor(){
-    super('entity');
+    super();
   }
   render(){
     this.currentFlow.render(); // flowの内容による
   }
 }
+
+class gun extends actor{
+  constructor(x, y, bulletVolume, speed){
+    super();
+    this._type = "gun";
+    this.pos = createVector(x, y);
+    this.speed = speed;
+    this.muzzle = []; // shotFlowを登録する
+    this.currentMuzzleIndex = 0;
+    this.magazine = [];
+    for(let i = 0; i < bulletVolume; i++){ this.magazine.push(new bullet("playerBullet", this)); }
+    this.cursor = 0; // non-Activeを調べるための初期位置
+    this.wait = 0; // 攻撃した後のインターバルタイム
+    this.stock = bulletVolume; // 弾数、ゲージ描画に使う感じ。
+  }
+}
+
+class bullet extends actor{
+  constructor(type, parent, colorId = 0){
+    super();
+    this._type = type; // playerBulletかenemyBulletか
+    this.parent = parent; // bulletの所属先。generatorかgunかって話。
+    this.pos = createVector();
+    this.velocity = createVector();
+  }
+  setPos(x, y){
+    this.pos.set(x, y);
+  }
+  setVelocity(vx, vy){
+    this.velocity.set(vx, vy);
+  }
+  update(){
+
+  }
+  inActivate(){
+    this.isActive = false;
+    this.parent.stock++; // ストックを戻す
+  }
+  render(){
+    // その色の四角形を描く、位置に。
+  }
+}
+
+class enemy extends actor{
+  constructor(){
+    super();
+  }
+}
+
+class enemyGenerator extends actor{
+  constructor(enemyVolume, bulletVolume){
+    super();
+  }
+}
+
 
 // 用意するactorのリスト：
 // entity: title, selectなどの状態をflowとして受け取り、状態の遷移を・・
@@ -475,8 +530,59 @@ class selectFlow extends flow{
 
 // 次から次へと敵が出て来ては消え、出て来ては消える感じで。
 // こっちも攻撃する。おわり。（？）
+// 最初は当たり判定どうでもいいから攻撃出せるようにして・・
+// ほぼコピペでいけるはず・・だけどわかんないな。グラフィックとか整理しないと（全部rectでいい）。
+// 画面外については画面から消えたら自動的にflowを離脱して初期化されるものとし、(hide等の処理)
+// 衝突判定のサイズを若干大きく取ってその幅の分を考慮して登録する、というかcolliderをそのように
+// 指定する（数を増やすとか）。更新もそれに倣うものとする。
+
+// ステージを増やすことについて・・
+// 最初に作って後はそれを使いまわす感じかな・・パターンの作り方だけ個別に指定する。
+// ・・いいや、気楽にやろ。
+// ステージごとの差が何であるかを考える感じ。
+// enemyGeneratorに渡すflowを変化させることで敵が出てくるパターンが変わる・・全員倒れたら次のflow, みたいな
+// ショットの種類はステージクリアするごとに増える感じで
+
+// enemy関連は後回しにしよう。
+
 class playFlow extends flow{
-  constructor(){
+  constructor(stageNumber){
     super();
+    this._gun = new gun(20, 320, 100, 1); // 初期状態での弾の数
+    //this._enemyGenerator = new enemyGenerator(20, 200); // 一度に出現する敵の数、合計の弾の数
+    this.initialState = PRE;
+    this.stageNumber = stageNumber; // 1なら1, 2なら2.
+    this.play_on = false; // ステージに来てinitializeしたのちtrueにする
+    // selectからきたときはfalseなのでinitializeが発動してそのあとtrueになる
+    // pauseからきたときはtrueになってるのでinitializeしないってなる。クリアした時など、pause以外で
+    // playを抜けるときにここをfalseにすることで再初期化を促す感じ。
+  }
+  initialize(_entity){
+    if(this.play_on){ return; }
+    this.play_on = true;
+  }
+  execute(_entity){
+    if(_entity.state === PRE){
+      this.initialize(_entity);
+      _entity.setState(ACT);
+    }
+    // とりあえずupdateくらいで
+    this._gun.update();
+    //this._enemyGenerator.update();
+  }
+  convert(_entity){
+    // とりあえずpauseだけ、pauseからはtitleかplayに行ける感じで。titleに行く際にはすべてリセット。
+    // gameoverからtitle, clearからもtitle.
+
+    // pauseに行くとき以外はthis.play_on = falseと書く。
+  }
+  render(){
+    // ショット用のゲージ、HP用のゲージ、他にも色々な情報。残りの敵の数とか？ステージ番号とか？
+    // ボス用のライフゲージとか・・色々。
+    // gunとenemyGeneratorのrenderをする、弾とかenemyとか色々。
+    // でもたとえばボスのライフゲージとかはボス用にクラス作ってそれのrenderに書けばいいし
+    // ショットの残数の描画とかもgunのところに書けばいい
+    this._gun.render();
+    this._enemyGenerator.render();
   }
 }
