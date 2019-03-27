@@ -93,7 +93,7 @@ class counter{
     if(this.cnt >= this.limit){ return 1; }
     return this.cnt / this.limit;
   }
-  setting(limit){ // reset → setting.(改名)
+  setting(limit = 0){ // reset → setting.(改名)
     this.cnt = 0;
     this.limit = limit;
   }
@@ -123,6 +123,8 @@ class flow{
   update(){} // 更新用
   render(gr){} // 描画用
 }
+// ----------------------------------------------------------------------------------------------- //
+// bulletの挙動を制御するためのflow群
 
 // 速度をセットするだけのハブ
 class setVelocityHub extends flow{
@@ -230,16 +232,83 @@ class limitedCircularDelayHub extends limitedDelayHub{
 }
 
 // ----------------------------------------------------------------------------------------------- //
+// 位置ベースの動きを指定するflow群、単振動とか円運動とかその辺。三角形とか？
+// もしくは・・たとえば(1, 1)を100回とか(0, -1)を100回とかそういうのでもよさそう（組み合わせて使う）
+// enemy自身にはflowとは別にbullet用のflowが用意されて一定の時間間隔でgeneratorの指示のもとに発射される。
+// その際に位置情報が使われる仕組み。
+
+// (vx, vy)をlimit回足すだけのflow
+class simpleMove extends flow{
+  constructor(vx, vy, limit){
+    super();
+    this.vx = vx;
+    this.vy = vy;
+    this.limit = limit;
+    this.initialState = PRE;
+  }
+  execute(_enemy){
+    if(_enemy.state === PRE){
+      _enemy.timer.setting(this.limit);
+      _enemy.setState(ACT);
+    }
+    _enemy.timer.step();
+    _enemy.pos.x += this.vx;
+    _enemy.pos.y += this.vy;
+    if(_enemy.timer.getProgress() === 1){ this.convert(_enemy); }
+  }
+}
+
+// enemyを出現させるときにflowの中身をいじることも考えないといけないかも。同じもの使いまわすなら・・んー。
+// あ、そうか、enemyTemplateを用意しとけば後は出現位置だけが問題で、あとはflowに個別に指定するのも自由だね。
+// 特定の位置を中心に単振動
+
+// うーん、単振動と円運動とたとえば三葉曲線とかもだけど、同じクラスに入れちゃうべきよね・・・
+// リサージュとか複雑なのけっこうあるしね。
+// simpleMoveのような動きの組み合わせ（今までMVFとかで作ってきたやつ）のクラスがあって、
+// こういうswingやcircleみたいなorbital系の動きのクラスがあって、
+// たとえば画面外から出てきて画面外へ去っていく動きのクラスがあって、というイメージ。直線とか、ゆらゆらとか。
+// それをenemyとしてgeneratorに登録して、それとは別に攻撃のタイミングや種類を指定する。
+class swing extends flow{
+  constructor(cx, cy, ax, ay, speed){
+    super();
+    this.cx = cx; // データ部分はspeedも含めて辞書扱いにして、入力メソッドも統一したほうがいいかも。
+    this.cy = cy; // そうすれば色んな動きを統一的に記述できるようになるしより複雑な動きも実現できる。
+    this.ax = ax;
+    this.ay = ay;
+    this.speed = speed; // 1のとき60カウントで一周、2で2倍速、3で3倍速（以下略）
+    this.initialState = PRE;
+  }
+  execute(_enemy){
+    if(_enemy.state === PRE){
+      _enemy.timer.setting();
+      _enemy.setState(ACT);
+    }
+    _enemy.timer.step(this.speed);
+    let cnt = _enemy.timer.getCnt();
+    _enemy.pos.set(this.cx + this.ax * sin(cnt * PI / 30), this.cy + this.ay * sin(cnt * PI / 30));
+    // convertはしない。倒れたら終わり。
+  }
+  setData(cx, cy, ax, ay, speed){
+    // 再利用のためのデータ決定メソッド
+    this.cx = cx;
+    this.cy = cy;
+    this.ax = ax;
+    this.ay = ay;
+    this.speed = speed;
+  }
+}
+
+// ----------------------------------------------------------------------------------------------- //
 // quadTree.
 class linearQuadTreeSpace {
-  constructor(_width, _height, level) {
+  constructor(_width, _height, level){
     this._width = _width;
     this._height = _height;
     this.data = [null];
     this._currentLevel = 0;
 
     // 入力レベルまでdataを伸長する。
-    while(this._currentLevel < level) {
+    while(this._currentLevel < level){
       this._expand();
     }
   }
@@ -251,14 +320,14 @@ class linearQuadTreeSpace {
 
   // 要素をdataに追加する。
   // 必要なのは、要素と、レベルと、レベル内での番号。
-  _addNode(node, level, index) {
+  _addNode(node, level, index){
     // オフセットは(4^L - 1)/3で求まる。
     // それにindexを足せば線形四分木上での位置が出る。
     const offset = ((4 ** level) - 1) / 3;
     const linearIndex = offset + index;
 
     // もしdataの長さが足りないなら拡張する。
-    while(this.data.length <= linearIndex) {
+    while(this.data.length <= linearIndex){
       this._expandData();
     }
 
@@ -267,11 +336,11 @@ class linearQuadTreeSpace {
     // なので要素を追加する前に親やその先祖すべてを
     // 空配列で初期化する。
     let parentCellIndex = linearIndex;
-    while(this.data[parentCellIndex] === null) {
+    while(this.data[parentCellIndex] === null){
       this.data[parentCellIndex] = [];
 
       parentCellIndex = Math.floor((parentCellIndex - 1) / 4);
-      if(parentCellIndex >= this.data.length) {
+      if(parentCellIndex >= this.data.length){
         break;
       }
     }
@@ -284,7 +353,7 @@ class linearQuadTreeSpace {
   // Actorを線形四分木に追加する。
   // Actorのコリジョンからモートン番号を計算し、
   // 適切なセルに割り当てる。
-  addActor(actor) {
+  addActor(actor){
     const collider = actor.myCollider;
 
     // モートン番号の計算。
@@ -298,7 +367,7 @@ class linearQuadTreeSpace {
     // オブジェクトが大量配置され、当たり判定に大幅な処理時間がかかる。
     // 実用の際にはここをうまく書き換えて、あまり負担のかからない
     // 処理に置き換えるといい。
-    if(leftTopMorton === -1 && rightBottomMorton === -1) {
+    if(leftTopMorton === -1 && rightBottomMorton === -1){
       this._addNode(actor, 0, 0);
       return;
     }
@@ -306,7 +375,7 @@ class linearQuadTreeSpace {
     // 左上と右下が同じ番号に所属していたら、
     // それはひとつのセルに収まっているということなので、
     // 特に計算もせずそのまま現在のレベルのセルに入れる。
-    if(leftTopMorton === rightBottomMorton) {
+    if(leftTopMorton === rightBottomMorton){
       this._addNode(actor, this._currentLevel, leftTopMorton);
       return;
     }
@@ -326,7 +395,7 @@ class linearQuadTreeSpace {
   }
 
   // 線形四分木の長さを伸ばす。
-  _expand() {
+  _expand(){
     const nextLevel = this._currentLevel + 1;
     const length = ((4 ** (nextLevel+1)) - 1) / 3;
 
@@ -338,7 +407,7 @@ class linearQuadTreeSpace {
   }
 
   // 16bitの数値を1bit飛ばしの32bitにする。
-  _separateBit32(n) {
+  _separateBit32(n){
     n = (n|(n<<8)) & 0x00ff00ff;
     n = (n|(n<<4)) & 0x0f0f0f0f;
     n = (n|(n<<2)) & 0x33333333;
@@ -346,13 +415,13 @@ class linearQuadTreeSpace {
   }
 
   // x, y座標からモートン番号を算出する。
-  _calc2DMortonNumber(x, y) {
+  _calc2DMortonNumber(x, y){
     // 空間の外の場合-1を返す。
-    if(x < 0 || y < 0) {
+    if(x < 0 || y < 0){
       return -1;
     }
 
-    if(x > this._width || y > this._height) {
+    if(x > this._width || y > this._height){
       return -1;
     }
 
@@ -369,14 +438,14 @@ class linearQuadTreeSpace {
   // オブジェクトの所属レベルを算出する。
   // XORを取った数を2bitずつ右シフトして、
   // 0でない数が捨てられたときのシフト回数を採用する。
-  _calcLevel(leftTopMorton, rightBottomMorton) {
+  _calcLevel(leftTopMorton, rightBottomMorton){
     const xorMorton = leftTopMorton ^ rightBottomMorton;
     let level = this._currentLevel - 1;
     let attachedLevel = this._currentLevel;
 
-    for(let i = 0; level >= 0; i++) {
+    for(let i = 0; level >= 0; i++){
       const flag = (xorMorton >> (i * 2)) & 0x3;
-      if(flag > 0) {
+      if(flag > 0){
         attachedLevel = level;
       }
 
@@ -388,7 +457,7 @@ class linearQuadTreeSpace {
 
   // 階層を求めるときにシフトした数だけ右シフトすれば
   // 空間の位置がわかる。
-  _calcCell(morton, level) {
+  _calcCell(morton, level){
     const shift = ((this._currentLevel - level) * 2);
     return morton >> shift;
   }
@@ -396,27 +465,27 @@ class linearQuadTreeSpace {
 
 // ----------------------------------------------------------------------------------------------- //
 // collider.
-class collider {
-  constructor(type, x, y) {
+class collider{
+  constructor(type, x, y){
     this._type = type;
     this.x = x;
     this.y = y;
   }
-  get type() { return this._type; }
+  get type(){ return this._type; }
 }
 
-class rectangleCollider extends collider {
-  constructor(x, y, w, h) {
+class rectangleCollider extends collider{
+  constructor(x, y, w, h){
     super('rectangle', x, y);
     this.w = w;
     this.h = h;
   }
   // 各種getter。
   // なくてもいいが、あったほうが楽。
-  get top() { return this.y; }
-  get bottom() { return this.y + this.h; }
-  get left() { return this.x; }
-  get right() { return this.x + this.w; }
+  get top(){ return this.y; }
+  get bottom(){ return this.y + this.h; }
+  get left(){ return this.x; }
+  get right(){ return this.x + this.w; }
   update(info){
     this.x = info.x;
     this.y = info.y;
@@ -832,6 +901,7 @@ class playFlow extends flow{
     // gunとenemyGeneratorのrenderをする、弾とかenemyとか色々。
     // でもたとえばボスのライフゲージとかはボス用にクラス作ってそれのrenderに書けばいいし
     // ショットの残数の描画とかもgunのところに書けばいい
+
     background(this.backgroundColor);
     this._gun.render();
     //this._enemyGenerator.render();
@@ -895,6 +965,13 @@ class playFlow extends flow{
     this.play_on = false;
   }
 }
+
+// 現時点で考えているレベリング・・
+// 最初は通常のショットだけ、弾数は20からスタート、HPも50からスタート
+// クリアするごとにupdate, 内容は弾数増やす、ショット増やす、HP増やす。
+// 最終的にショットは6種類くらいにしたい。HPも300くらいまで上げて・・敵も強くする感じ。おわり。
+// そういうわけなので、setStageにはショット関連の記述は書かないことになりそう。（敵の用意云々だけ書く感じ）
+// clearしたときにplayの方でメソッド使って拡張処理しつつclearStateにconvertしてとかそんな感じになりそう。
 
 class pauseFlow extends flow{
   constructor(){
