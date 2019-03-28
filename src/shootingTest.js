@@ -10,6 +10,8 @@ let clickPosX;
 let clickPosY;
 let keyFlag;
 
+// let bgs = [];
+
 const IDLE = 0;
 const PRE = 1;
 const ACT = 2;
@@ -18,6 +20,12 @@ const ACT = 2;
 const timeCounter = document.createElement('div');
 document.body.appendChild(timeCounter);
 // メインループだけ調べる
+
+/*
+function preload(){
+  bgs.push(loadImage('./assets/sky.JPG'));
+}*/
+
 
 function setup(){
   createCanvas(640, 480);
@@ -121,7 +129,7 @@ class flow{
     }
   }
   update(){} // 更新用
-  render(gr){} // 描画用
+  // render(gr){} // 描画用
 }
 // ----------------------------------------------------------------------------------------------- //
 // bulletの挙動を制御するためのflow群
@@ -157,7 +165,10 @@ class matrixArrow extends flow{
     _bullet.pos.add(_bullet.velocity); // 位置の更新はここで。
     if(_bullet.timer.getCnt() === this.spanTime){ this.convert(_bullet); }
     // 画面の端に触れたら消える仕様。
-    if(_bullet.vanish()){ this.convert(_bullet); }
+    if(_bullet.vanish()){
+      //this.convert(_bullet);
+      _bullet.setFlow(undefined); // こっちでしょ。
+    }
   }
 }
 // n_wayHubの移植。
@@ -581,11 +592,91 @@ class entity extends actor{
 
 // 衝突判定考えるんならcolliderも持たせないとね・・・
 
+// fireUnitを作ってgunとenemyはその派生とするってのもありかな
+// typeは派生の方でgunなりenemyなり設定する
+class fireUnit extends actor{
+  constructor(bulletVolume){ // speedはenemyの場合は不要.
+    super();
+    // typeは派生先で
+    this.pos = createVector();
+    this.w = 0; // 描画用
+    this.h = 0;
+    // speedはgunだけ（移動操作）
+    this.muzzle = []; // shotという辞書を格納する、initialFlowとかwaitについての情報が入ってる
+    this.currentMuzzleIndex = 0;
+    this.magazine = []; // 弾を格納する。格納の仕方が異なるので・・enemyの場合は親から与えられる感じ。gunは直接作る。
+    this.cursor = 0; // non-Activeを調べるための初期位置
+    this.wait = 0;
+    this.stock = bulletVolume; // bulletVolumeは派生先でmagazineに弾を格納するときに使う
+  }
+  setParameter(x, y, w, h){
+    // パラメータこっちで。HPとかも・・？
+    this.pos.set(x, y);
+    this.w = w;
+    this.h = h;
+  }
+  setSpeed(newSpeed){
+    this.speed = newSpeed;
+  }
+  registShot(shot){
+    this.muzzle.push(shot); // shotは辞書で、
+  }
+  fire(){
+    // cost: 一度に消費する弾数
+    // hue: 弾の色
+    // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
+    // wait: 撃ってから次に撃てるようになるまでのインターバル
+    // damage: 弾にセットされる被ダメージ量。これと相手の耐久力から相手に与えるダメージが以下略
+    // damageはHP作ってから追加で実装する感じ
+    if(this.wait > 0){ return; } // 待ち時間に満たない場合
+    let shot = this.muzzle[this.currentMuzzleIndex];
+    let n = shot['cost'];
+    if(this.stock < n){ return; } // costに相当する弾数が用意されていない場合
+    // となるとbullet側が親の(parent)Gunを知っていないといけないからまずいなー
+    this.stock -= n;
+    while(n > 0){
+      if(this.magazine[this.cursor].isActive){
+        this.cursor = (this.cursor + 1) % this.magazine.length; // カーソルを進める. こっちに書かないとね。
+        continue;
+      }
+      n--;
+      let _bullet = this.magazine[this.cursor];
+      _bullet.setHueValue(shot['hue']); // hueの値
+      _bullet.setFlow(shot['initialFlow']);
+      _bullet.setPos(this.pos.x, this.pos.y);
+      _bullet.activate(); // used要らない。bullet自身が判断して自分の親のmagazineに戻ればいいだけ。
+      _bullet.visible = true;
+    }
+    this.wait = shot['wait']; // waitを設定
+  }
+  update(){
+    if(!this.isActive){ return; }
+    this.magazine.forEach(function(b){
+      if(b.isActive){ b.update(); } // activeなものだけupdateする
+    })
+    this.currentFlow.execute(this);
+    if(this.wait > 0){ this.wait--; } // waitカウントを減らす
+  }
+  render(){
+    this.magazine.forEach(function(b){ if(b.isActive){ b.render(); } });
+    this.renderBody();
+  }
+  renderBody(){
+    // デフォルト. gunの方では変えたりとかする
+    push();
+    fill(this.bodyHue, 100, 100);
+    rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
+    pop();
+  }
+}
+
 class gun extends actor{
-  constructor(x, y, bulletVolume, speed){
+  constructor(bulletVolume, speed){
     super();
     this._type = "gun";
-    this.pos = createVector(x, y);
+    this.pos = createVector();
+    this.w = 0;
+    this.h = 0;
     this.speed = speed;
     this.muzzle = []; // shotはinitialFlowやら消費する弾の数やらダメージやらについての情報
     this.currentMuzzleIndex = 0;
@@ -596,8 +687,10 @@ class gun extends actor{
     this.stock = bulletVolume; // 弾数、ゲージ描画に使う感じ。
     this.bodyHue = 0; // 弾の色に応じて変える。
   }
-  setPos(x, y){
+  setParameter(x, y, w, h){
     this.pos.set(x, y);
+    this.w = w;
+    this.h = h;
   }
   setSpeed(newSpeed){
     this.speed = newSpeed;
@@ -616,7 +709,7 @@ class gun extends actor{
   revolve(){
     this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
     let shot = this.muzzle[this.currentMuzzleIndex];
-    this.bodyHue = shot['hue'];
+    this.bodyHue = shot['hue']; // ボスの場合とかこれでコロコロ色変えたら面白そう
   }
   fire(){
     // cost: 一度に消費する弾数
@@ -658,9 +751,9 @@ class gun extends actor{
     push();
     noStroke();
     fill(30);
-    rect(this.pos.x - 15, this.pos.y - 15, 30, 30);
+    rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
     fill(this.bodyHue, 100, 100);
-    rect(this.pos.x - 10, this.pos.y - 10, 20, 20);
+    rect(this.pos.x - this.w + 5, this.pos.y - this.h + 5, 2 * (this.w - 5), 2 * (this.h - 5));
     if(this.stock > 0){
       rect(10, 10, this.stock, 20);
     }
@@ -721,12 +814,21 @@ class bullet extends actor{
 class enemy extends actor{
   constructor(){
     super();
+    this.timer = new counter();
   }
 }
 
 class enemyGenerator extends actor{
   constructor(enemyVolume, bulletVolume){
     super();
+    this.timer = new counter(); // 敵を出現させるカウント
+    // ステージごとに決められる倒すべき敵の総数。
+    // ボスは1匹の場合もあるし3匹の場合もあるかも（わかんない）
+    // 敵が出現するインターバルを計るためにタイマーが必要
+    // で、ボス以外は攻撃パターン1種類だけ。ボスは複数持ってるから分けた方がいいかな・・クラス。今はちょっと考えられない。。
+    this.enemySet = [];
+    // this.bossEnemy; // ？？？
+    this.bulletSet = [];
   }
 }
 // 倒れたenemyは戻る・・一応白の棒で目とか付けた方が分かりやすそう。
@@ -759,10 +861,10 @@ class controlGun extends flow{
     else if(keyIsDown(DOWN_ARROW)){ _gun.pos.y += _gun.speed; }
     else if(keyIsDown(RIGHT_ARROW)){ _gun.pos.x += _gun.speed; }
     else if(keyIsDown(LEFT_ARROW)){ _gun.pos.x -= _gun.speed; }
-    if(_gun.pos.x <= 15){ _gun.pos.x = 15; }
-    if(_gun.pos.x >= width - 15){ _gun.pos.x = width - 15 - 1; }
-    if(_gun.pos.y <= 15){ _gun.pos.y = 15; }
-    if(_gun.pos.y >= height - 15){ _gun.pos.y = height - 15 - 1; }
+    if(_gun.pos.x <= _gun.w){ _gun.pos.x = _gun.w; }
+    if(_gun.pos.x >= width - _gun.w){ _gun.pos.x = width - _gun.w - 1; }
+    if(_gun.pos.y <= _gun.h){ _gun.pos.y = _gun.h; }
+    if(_gun.pos.y >= height - _gun.h){ _gun.pos.y = height - _gun.h - 1; }
     if(keyIsDown(90)){
       // Zボタン
       _gun.fire();
@@ -856,7 +958,8 @@ class selectFlow extends flow{
 class playFlow extends flow{
   constructor(stageNumber){
     super();
-    this._gun = new gun(20, 320, 100, 5); // 初期状態での弾の数
+    this._gun = new gun(100, 5); // 初期状態での弾の数
+    // いずれはinitializeでパラメータを設定することになりそう。スピードとか大きさとか。
     //this._enemyGenerator = new enemyGenerator(20, 200); // 一度に出現する敵の数、合計の弾の数
     this.initialState = PRE;
     this.stageNumber = stageNumber; // 1なら1, 2なら2.
@@ -903,6 +1006,7 @@ class playFlow extends flow{
     // ショットの残数の描画とかもgunのところに書けばいい
 
     background(this.backgroundColor);
+    //image(bgs[0], 0, 0);
     this._gun.render();
     //this._enemyGenerator.render();
   }
@@ -917,6 +1021,7 @@ class playFlow extends flow{
       // 初期状態でのガンの設定はconstructorに書く・・かも。
       // つまりconstructorに初期の直進オンリーのガンだけかいておいてあとはクリアするたびに
       // 追加されて行って追加されたガンは前のステージでも使えるっていうふうにしようねっていう話。
+      this._gun.setParameter(60, 240, 15, 15);
 
       // とりあえずめんどくさいので
       let flow_0_0 = new setVelocityHub(3, 0);
