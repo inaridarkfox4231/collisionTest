@@ -870,6 +870,8 @@ class enemy extends actor{
     this.timer = new counter();
   }
 }
+// enemyを派生として書く場合、enemyGeneratorから一部分を切り崩して・・のところはgeneratorに書くから。
+// resetで親をundefinedとかその辺を書いてね。
 
 class enemyGenerator extends actor{
   constructor(enemyVolume, bulletVolume){
