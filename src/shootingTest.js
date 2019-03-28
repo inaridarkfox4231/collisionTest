@@ -595,7 +595,7 @@ class entity extends actor{
 // fireUnitを作ってgunとenemyはその派生とするってのもありかな
 // typeは派生の方でgunなりenemyなり設定する
 class fireUnit extends actor{
-  constructor(bulletVolume){ // speedはenemyの場合は不要.
+  constructor(){ // bulletVolumeはenemyの場合はころころ変わるので・・speedはenemyの場合は不要.
     super();
     // typeは派生先で
     this.pos = createVector();
@@ -607,7 +607,8 @@ class fireUnit extends actor{
     this.magazine = []; // 弾を格納する。格納の仕方が異なるので・・enemyの場合は親から与えられる感じ。gunは直接作る。
     this.cursor = 0; // non-Activeを調べるための初期位置
     this.wait = 0;
-    this.stock = bulletVolume; // bulletVolumeは派生先でmagazineに弾を格納するときに使う
+    this.stock = 0; // bulletVolumeはenemyでは可変。
+    this.bodyHue = 0;
   }
   setParameter(x, y, w, h){
     // パラメータこっちで。HPとかも・・？
@@ -615,13 +616,16 @@ class fireUnit extends actor{
     this.w = w;
     this.h = h;
   }
-  setSpeed(newSpeed){
-    this.speed = newSpeed;
-  }
   registShot(shot){
     this.muzzle.push(shot); // shotは辞書で、
   }
+  revolve(){
+    this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
+    let shot = this.muzzle[this.currentMuzzleIndex];
+    this.bodyHue = shot['hue']; // ボスの場合とかこれでコロコロ色変えたら面白そう
+  }
   fire(){
+    console.log('fire');
     // cost: 一度に消費する弾数
     // hue: 弾の色
     // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
@@ -668,8 +672,57 @@ class fireUnit extends actor{
     rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
     pop();
   }
+  reset(){} // リセット処理。gunの場合はtitleに戻るとき発動、enemyの場合はやられたときに発動
+  // enemyの場合はtitleに戻るときはenemyオブジェクト自体が破棄される（作り直し）。
+  // やられたときのresetはmagazineを空にして参照を入れ直す準備をする（enemyのmagazineは
+  // enemyGeneratorの一部分（親がundefined）を切り離して使う）。resetの時に・・
+  // enemyGeneratorをresetするときにそこに入ってるenemyBulletの親をまとめてundefinedにする仕様
 }
 
+class gun extends fireUnit{
+  constructor(bulletVolume, speed){
+    super();
+    this._type = 'gun';
+    this.speed = speed;
+    for(let i = 0; i < bulletVolume; i++){
+      this.magazine.push(new bullet('playerBullet', this));
+    }
+    this.stock = bulletVolume; // enemyの場合はsettingの際にこれを設定する感じ。
+  }
+  setSpeed(newSpeed){
+    this.speed = newSpeed;
+  }
+  addBullet(n){
+    // 増やすことがあるかもしれないので一応
+    while(n > 0){
+      this.magazine.push(new bullet("playerBullet", this));
+      this.stock++;
+      n--;
+    }
+  }
+  renderBody(){
+    push();
+    noStroke();
+    fill(30);
+    rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
+    fill(this.bodyHue, 100, 100);
+    rect(this.pos.x - this.w + 5, this.pos.y - this.h + 5, 2 * (this.w - 5), 2 * (this.h - 5));
+    if(this.stock > 0){
+      rect(10, 10, this.stock, 20);
+    }
+    pop();
+  }
+  reset(){
+    this.muzzle = [];
+    this.currentMuzzleIndex = 0;
+    this.cursor = 0;
+    this.wait = 0;
+    this.bodyHue = 0;
+    this.magazine.forEach(function(b){ b.setFlow(undefined); })
+    this.stock = this.magazine.length;
+  }
+}
+/*
 class gun extends actor{
   constructor(bulletVolume, speed){
     super();
@@ -768,7 +821,7 @@ class gun extends actor{
     this.magazine.forEach(function(b){ b.setFlow(undefined); })
     this.stock = this.magazine.length;
   }
-}
+}*/
 
 class bullet extends actor{
   constructor(type, parent){
