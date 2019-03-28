@@ -121,11 +121,11 @@ class flow{
   addFlow(_flow){ this.convertList.push(_flow); }
   execute(_actor){ this.convert(_actor); } // デフォルトはconvertだけ（initializeはオプション）
   convert(_actor){
-    // デフォルトはランダムコンバート、undefinedがセットされた場合の処理はactorに書く。
+    // デフォルトは0番、undefinedがセットされた場合の処理はactorに書く。
     if(this.convertList.length === 0){ _actor.setFlow(undefined); }
     else{
-      let n = this.convertList.length;
-      _actor.setFlow(this.convertList[randomInt(n)]);
+      // ひとつしかないなら0番だし複数ある時はどうせ上書き、ランダムがいいならハブをかませりゃいいんだ
+      _actor.setFlow(this.convertList[0]);
     }
   }
   update(){} // 更新用
@@ -243,6 +243,8 @@ class limitedCircularDelayHub extends limitedDelayHub{
 }
 
 // ----------------------------------------------------------------------------------------------- //
+// enemyにセットするflow群
+
 // 位置ベースの動きを指定するflow群、単振動とか円運動とかその辺。三角形とか？
 // もしくは・・たとえば(1, 1)を100回とか(0, -1)を100回とかそういうのでもよさそう（組み合わせて使う）
 // enemy自身にはflowとは別にbullet用のflowが用意されて一定の時間間隔でgeneratorの指示のもとに発射される。
@@ -279,6 +281,11 @@ class simpleMove extends flow{
 // こういうswingやcircleみたいなorbital系の動きのクラスがあって、
 // たとえば画面外から出てきて画面外へ去っていく動きのクラスがあって、というイメージ。直線とか、ゆらゆらとか。
 // それをenemyとしてgeneratorに登録して、それとは別に攻撃のタイミングや種類を指定する。
+
+// 初期位相も指定できるようにすれば複数の敵がぐるぐる回るのとか表現できそうね。
+// 画面中心を中心として5つくらい、多方向にショットを発射しながらぐるぐる回るのとか面白そう。
+// で、あたりまえだけどこれは派生で書くべき。orbitalFlowとかずっと書いてきた。
+// あの蓄積を今こそ使うべきなんだけど枠組みきちんとしてからでいいです。今は別の事をやらないと・・・
 class swing extends flow{
   constructor(cx, cy, ax, ay, speed){
     super();
@@ -308,6 +315,23 @@ class swing extends flow{
     this.speed = speed;
   }
 }
+// 円軌道
+
+// ----------------------------------------------------------------------------------------------- //
+// generateFlow. enemyGeneratorにセットして敵を配置するための準備をする
+
+
+// ちょっとまって
+// バリエーションは限られているんだよね、だからenemyのstaticでenemyのバリエーションを用意して、
+// 横幅、縦幅、色、まだだけどHP, 攻撃の威力などが既にテンプレとして与えられてると。
+// こっちではそのidを指定するだけで敵が配置されるようにしたいね。で、こっちでは動きを指定するだけにするとか。
+// たとえば円軌道上にいくつかの敵を等間隔で配置してぐるぐる回させる、
+// たとえば直線上に並べる、3×3状に並べる、5×2状に並べる、行ったり来たりさせる、
+// あるいは親玉がいてそこから無数に敵が出てきて、大元を倒すと全員倒れて次のフェイズ、とか。
+// だからそういうのまで含めてここで決めようってなっちゃうともう意味不明の極みでしょ。
+// 多分、ここ最近のもやもやの一番大きな原因がそれなんじゃないかって思った。事前に決めておくんだ。
+// というか作っておくんだよ、モンスターを。後はそれに動きを付けて配置するだけでいいんだ。
+// あ、bullet関連のメソッドはenemyGenerator持ちだけど。切り崩す処理とかも書かないと。
 
 // ----------------------------------------------------------------------------------------------- //
 // quadTree.
@@ -619,13 +643,8 @@ class fireUnit extends actor{
   registShot(shot){
     this.muzzle.push(shot); // shotは辞書で、
   }
-  revolve(){
-    this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
-    let shot = this.muzzle[this.currentMuzzleIndex];
-    this.bodyHue = shot['hue']; // ボスの場合とかこれでコロコロ色変えたら面白そう
-  }
+  revolve(){} // shotを変更する手続き
   fire(){
-    console.log('fire');
     // cost: 一度に消費する弾数
     // hue: 弾の色
     // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
@@ -658,8 +677,8 @@ class fireUnit extends actor{
     this.magazine.forEach(function(b){
       if(b.isActive){ b.update(); } // activeなものだけupdateする
     })
+    if(this.wait > 0){ this.wait--; } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
     this.currentFlow.execute(this);
-    if(this.wait > 0){ this.wait--; } // waitカウントを減らす
   }
   render(){
     this.magazine.forEach(function(b){ if(b.isActive){ b.render(); } });
@@ -689,8 +708,13 @@ class gun extends fireUnit{
     }
     this.stock = bulletVolume; // enemyの場合はsettingの際にこれを設定する感じ。
   }
+  revolve(){
+    this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
+    let shot = this.muzzle[this.currentMuzzleIndex];
+    this.bodyHue = shot['hue']; // gunの場合はshotに応じたボディカラーにする。enemyの場合は固定。
+  }
   setSpeed(newSpeed){
-    this.speed = newSpeed;
+    this.speed = newSpeed; // enemyにはspeedは設定しない
   }
   addBullet(n){
     // 増やすことがあるかもしれないので一応
@@ -708,7 +732,7 @@ class gun extends fireUnit{
     fill(this.bodyHue, 100, 100);
     rect(this.pos.x - this.w + 5, this.pos.y - this.h + 5, 2 * (this.w - 5), 2 * (this.h - 5));
     if(this.stock > 0){
-      rect(10, 10, this.stock, 20);
+      rect(10, 10, this.stock, 20); // 弾数を表すゲージ表示
     }
     pop();
   }
@@ -718,99 +742,32 @@ class gun extends fireUnit{
     this.cursor = 0;
     this.wait = 0;
     this.bodyHue = 0;
-    this.magazine.forEach(function(b){ b.setFlow(undefined); })
+    this.magazine.forEach(function(b){ b.setFlow(undefined); }) // magazine...enemyでは空にする
     this.stock = this.magazine.length;
   }
 }
-/*
-class gun extends actor{
-  constructor(bulletVolume, speed){
-    super();
-    this._type = "gun";
-    this.pos = createVector();
-    this.w = 0;
-    this.h = 0;
-    this.speed = speed;
-    this.muzzle = []; // shotはinitialFlowやら消費する弾の数やらダメージやらについての情報
-    this.currentMuzzleIndex = 0;
-    this.magazine = [];
-    for(let i = 0; i < bulletVolume; i++){ this.magazine.push(new bullet("playerBullet", this)); }
-    this.cursor = 0; // non-Activeを調べるための初期位置
-    this.wait = 0; // 攻撃した後のインターバルタイム
-    this.stock = bulletVolume; // 弾数、ゲージ描画に使う感じ。
-    this.bodyHue = 0; // 弾の色に応じて変える。
-  }
-  setParameter(x, y, w, h){
-    this.pos.set(x, y);
-    this.w = w;
-    this.h = h;
-  }
-  setSpeed(newSpeed){
-    this.speed = newSpeed;
-  }
-  registShot(shot){
-    this.muzzle.push(shot); // shotは辞書で、
-  }
-  addBullet(n){
-    // 増やすことがあるかもしれないので一応
-    while(n > 0){
-      this.magazine.push(new bullet("playerBullet", this));
-      this.stock++;
-      n--;
-    }
+
+class enemy extends fireUnit{
+  constructor(){
+    super(); // bulletVolumeについては、enemyGenerator側で指定するからいい。（non-Activeなやつから切り出して使う）
+    // speedも位置ベースの動きをする分には問題ない、なんなら速度も加えてそういう動きも出来るように改良する。
+    // magazineとstockはenemyGeneratorが決めるってこと
   }
   revolve(){
     this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
-    let shot = this.muzzle[this.currentMuzzleIndex];
-    this.bodyHue = shot['hue']; // ボスの場合とかこれでコロコロ色変えたら面白そう
-  }
-  fire(){
-    // cost: 一度に消費する弾数
-    // hue: 弾の色
-    // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
-    // wait: 撃ってから次に撃てるようになるまでのインターバル
-    // damage: 弾にセットされる被ダメージ量。これと相手の耐久力から相手に与えるダメージが以下略
-    if(this.wait > 0){ return; } // 待ち時間に満たない場合
-    let shot = this.muzzle[this.currentMuzzleIndex];
-    let n = shot['cost'];
-    if(this.stock < n){ return; } // costに相当する弾数が用意されていない場合
-    // となるとbullet側が親の(parent)Gunを知っていないといけないからまずいなー
-    this.stock -= n;
-    while(n > 0){
-      if(this.magazine[this.cursor].isActive){
-        this.cursor = (this.cursor + 1) % this.magazine.length; // カーソルを進める. こっちに書かないとね。
-        continue;
-      }
-      n--;
-      let _bullet = this.magazine[this.cursor];
-      _bullet.setHueValue(shot['hue']); // hueの値
-      _bullet.setFlow(shot['initialFlow']);
-      _bullet.setPos(this.pos.x, this.pos.y);
-      _bullet.activate(); // used要らない。bullet自身が判断して自分の親のmagazineに戻ればいいだけ。
-      _bullet.visible = true;
-    }
-    this.wait = shot['wait']; // waitを設定
   }
   update(){
     if(!this.isActive){ return; }
     this.magazine.forEach(function(b){
       if(b.isActive){ b.update(); } // activeなものだけupdateする
     })
-    this.currentFlow.execute(this);
-    if(this.wait > 0){ this.wait--; } // waitカウントを減らす
-  }
-  render(){
-    this.magazine.forEach(function(b){ if(b.isActive){ b.render(); } });
-    push();
-    noStroke();
-    fill(30);
-    rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
-    fill(this.bodyHue, 100, 100);
-    rect(this.pos.x - this.w + 5, this.pos.y - this.h + 5, 2 * (this.w - 5), 2 * (this.h - 5));
-    if(this.stock > 0){
-      rect(10, 10, this.stock, 20);
-    }
-    pop();
+    if(this.wait > 0){
+      this.wait--;
+      if(this.wait === 0){ this.revolve(); } // waitが0になるたびに次のshot,と切り替わる
+    } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
+    this.currentFlow.execute(this); // この場合は動く感じで。
+    this.fire(); // fireは毎フレーム。waitだったり弾が足りないと発射されない感じ。
+    // たとえばstock上限が5で5発を10フレーム間隔で発射する場合そのあとそれが戻るまで間が空くとかそういう感じ。
   }
   reset(){
     this.muzzle = [];
@@ -818,10 +775,10 @@ class gun extends actor{
     this.cursor = 0;
     this.wait = 0;
     this.bodyHue = 0;
-    this.magazine.forEach(function(b){ b.setFlow(undefined); })
-    this.stock = this.magazine.length;
+    this.magazine = [];
+    this.stock = 0;
   }
-}*/
+}
 
 class bullet extends actor{
   constructor(type, parent){
@@ -864,12 +821,13 @@ class bullet extends actor{
 }
 
 // enemyの挙動は位置制御にする。速度持たせてもいいけど・・どうするかな。要相談。
+/*
 class enemy extends actor{
   constructor(){
     super();
     this.timer = new counter();
   }
-}
+}*/ // enemyはfireUnitの派生として書くことになった
 
 class enemyGenerator extends actor{
   constructor(enemyVolume, bulletVolume){
@@ -1111,7 +1069,8 @@ class playFlow extends flow{
     }
   }
   static createShot(flowSet, cost, hue, wait){
-    // shotを作る～
+    // shotを作る～flowSetに配列を入れるとその順にくっつけてcostとかhueとか入れて辞書作ってくれる
+    // もっとも、分岐させる場合はその限りではない（挙動をランダムで変化させるとか）ので個別に作る必要があるけど。
     for(let i = 1; i < flowSet.length; i++){
       flowSet[i - 1].addFlow(flowSet[i]);
     }
@@ -1123,6 +1082,8 @@ class playFlow extends flow{
     this.play_on = false;
   }
 }
+// enemyGeneratorにはgenerateFlowのシークエンスのinitialFlowをセットすることになりそう。
+// 各generateFlowには敵の出現のさせ方やインターバルの長さなどが記述されてる。その通りに挙動する。
 
 // 現時点で考えているレベリング・・
 // 最初は通常のショットだけ、弾数は20からスタート、HPも50からスタート
