@@ -196,6 +196,37 @@ class n_wayHub extends flow{
   }
 }
 
+// 複数の敵で共通のflowを共有する場合ね・・あ、そうか、共有しないんだっけ。じゃあいいや（おい）
+// 横方向に特化したn_wayHub.
+class n_waySimpleHub extends flow{
+  constructor(vx, vy, n){
+    super();
+    this.directionArray = [];
+    let _length;
+    if(n % 2 === 0){ // 偶数の場合
+      _length = -(n / 2) + 0.5;
+    }else{ // 奇数の場合
+      _length = -((n - 1) / 2);
+    }
+    for(let i = 0; i < n; i++){
+      this.directionArray.push(createVector(vx, vy * _length));
+      _length += 1;
+    }
+    this.currentIndex = 0;
+    this.initialState = ACT;
+  }
+  execute(_bullet){
+    let v = this.directionArray[this.currentIndex];
+    _bullet.setVelocity(v.x, v.y);
+    this.currentIndex = (this.currentIndex + 1) % this.directionArray.length;
+    this.convert(_bullet);
+  }
+}
+// これを用いたn_wayGunの作り方。
+// まず横方向の速度に対する縦方向の速度は比率で、この差でいくつおきに・・
+// かませるmatrixは基本1.01の0.8, これで鋭く曲がる。たとえば10, 15, 3で1.01, 0, 0, 0.8だと質の良い3Wayになる。
+// 1.01の方を大きくするとより遠くでまっすぐになるようになり。0.8を小さくしても同様の効果が得られる感じ。計算で出せるはず。
+
 // Gun用に作り替えよう。まあ、そのうち整理するけどね・・・
 // count * intervalだけのタイマーをセットする。limitまでいくとリセット。
 // すべてのタイマーは1フレームでセットし終わるので毎フレームの更新などは存在しない。
@@ -271,6 +302,30 @@ class simpleMove extends flow{
   }
 }
 
+// コンスタントフロー
+class constantFlow extends flow{
+  constructor(from, to, span){
+    super();
+    this.from = from;
+    this.to = to;
+    this.span = span;
+    this.initialState = PRE; // timerのsetting.
+  }
+  initialize(_enemy){
+    _enemy.timer.setting(this.span);
+    _enemy.setState(ACT);
+  }
+  execute(_enemy){
+    if(_enemy.state === PRE){ this.initialize(_enemy); }
+    _enemy.timer.step();
+    let prg = _enemy.timer.getProgress();
+    _enemy.pos.x = map(prg, 0, 1, this.from.x, this.to.x);
+    _enemy.pos.y = map(prg, 0, 1, this.from.y, this.to.y);
+    if(prg === 1){
+      this.convert(_enemy);
+    }
+  }
+}
 // enemyを出現させるときにflowの中身をいじることも考えないといけないかも。同じもの使いまわすなら・・んー。
 // あ、そうか、enemyTemplateを用意しとけば後は出現位置だけが問題で、あとはflowに個別に指定するのも自由だね。
 // 特定の位置を中心に単振動
@@ -316,22 +371,6 @@ class swing extends flow{
   }
 }
 // 円軌道
-
-// ----------------------------------------------------------------------------------------------- //
-// generateFlow. enemyGeneratorにセットして敵を配置するための準備をする
-
-
-// ちょっとまって
-// バリエーションは限られているんだよね、だからenemyのstaticでenemyのバリエーションを用意して、
-// 横幅、縦幅、色、まだだけどHP, 攻撃の威力などが既にテンプレとして与えられてると。
-// こっちではそのidを指定するだけで敵が配置されるようにしたいね。で、こっちでは動きを指定するだけにするとか。
-// たとえば円軌道上にいくつかの敵を等間隔で配置してぐるぐる回させる、
-// たとえば直線上に並べる、3×3状に並べる、5×2状に並べる、行ったり来たりさせる、
-// あるいは親玉がいてそこから無数に敵が出てきて、大元を倒すと全員倒れて次のフェイズ、とか。
-// だからそういうのまで含めてここで決めようってなっちゃうともう意味不明の極みでしょ。
-// 多分、ここ最近のもやもやの一番大きな原因がそれなんじゃないかって思った。事前に決めておくんだ。
-// というか作っておくんだよ、モンスターを。後はそれに動きを付けて配置するだけでいいんだ。
-// あ、bullet関連のメソッドはenemyGenerator持ちだけど。切り崩す処理とかも書かないと。
 
 // ----------------------------------------------------------------------------------------------- //
 // quadTree.
@@ -634,9 +673,11 @@ class fireUnit extends actor{
     this.stock = 0; // bulletVolumeはenemyでは可変。
     this.bodyHue = 0;
   }
-  setParameter(x, y, w, h){
-    // パラメータこっちで。HPとかも・・？
+  setPos(x, y){
     this.pos.set(x, y);
+  }
+  setParameter(w, h){
+    // パラメータこっちで。HPとかも・・？
     this.w = w;
     this.h = h;
   }
@@ -780,6 +821,24 @@ class enemy extends fireUnit{
   }
 }
 
+function createEnemy(id, _enemy){
+  if(id < 3){ createSimpleEnemy(id, _enemy); }
+}
+
+function createSimpleEnemy(id, _enemy){
+  // id === 0, 1, 2のとき30x30, 20x20, 10x10. たとえば3, 4, 5だったら3を引くなど。
+  _enemy.setParameter(30 - id * 10, 30 - id * 10);
+  // HPは10, 20, 30.
+  // 弾数は5, 10, 15. この情報を元にmagazineに装填される
+  _enemy.stock = 5 + 5 * id;
+  // muzzleに入れるのは各々真正面、2方向、3方向で直線的。角度は30°くらいで。arcHub使う。
+  let f_0 = new n_waySimpleHub(-10, 15, id + 1);
+  let f_1 = new matrixArrow(1.01, 0, 0, 0.8, 360);
+  f_0.addFlow(f_1);
+  _enemy.muzzle.push({cost: id + 1, hue: id * 5, initialFlow: f_0, wait: 10});
+  _enemy.bodyHue = id * 5; // 5, 10, 15.
+}
+
 class bullet extends actor{
   constructor(type, parent){
     super();
@@ -858,6 +917,54 @@ class enemyGenerator extends actor{
 // 速度だけ変えるとかね・・
 
 // ちなみにplayまで出番がないです //
+
+// ----------------------------------------------------------------------------------------------- //
+// generateFlow. enemyGeneratorにセットして敵を配置するための準備をする
+
+// line...直線状に現れていったりきたり
+// posArrayにいくつかのposが入ってて順番にconstantFlowにしたがって指定spanで進む感じ
+// idで出現場所指定してそれぞれ配列で（以下略）
+// 基本となるいくつかのあれ、それを平行移動でコピーする。そのベクトルを引数で渡す。むむ。。
+class generateFlow_line extends flow{
+  constructor(posArray, span, dx, dy, n){
+    // posArrayは基本となるいくつかのpos,spanはその間を遷移する必要フレーム数、dx, dyはずらし、nはいくつまで
+    // ずらすか, idSetは出現させる敵のid, segIdSetはどのセグメントに出現させるか、startIdSetはそのセグメントの
+    // 何番目からスタートするのか。以上。今までやってきたmoving~~~と同じことやってるのよね。
+    this.flowSet = [];
+    this.segmentLength = posArray.length; // enemyを配置するのに使う。mにあたる数。
+    posArray.push(posArray[0]); // おしりに頭をくっつける（煩雑さ回避）
+    for(let i = 0; i < n; i++){
+      for(let k = 0; k < posArray.length; k++){
+        let from = createVector(posArray[k].x + dx * i, posArray[k].y + dy * i);
+        let to = createVector(posArray[k + 1].x + dx * i, posArray[k + 1].y + dy * i);
+        this.flowSet.push(new constantFlow(from, to, span));
+      }
+    }
+    this.enemySet = [];
+    this.initialState = PRE;
+  }
+  createEnemy(dataSet){
+    // 辞書にしよう。辞書の配列。enemyId, segId, startId.
+    // enemyIdに従ってenemySetが作られる、というか放り込まれる。このリストは全員倒したかどうかを調べるのに使われる。
+    // たとえば各segmentがm個のposからなりsegmentがn個の場合,セットするflowの絶対idはsegId * m + startIdで
+    // 計算される。
+    // なお、bulletの装填については別メソッドでenemyGeneratorが行うことになっている、executeのPREに書けばいいんじゃない。
+    // initializeでまとめてやります。
+  }
+}
+
+// ちょっとまって
+// バリエーションは限られているんだよね、だからenemyのstaticでenemyのバリエーションを用意して、
+// 横幅、縦幅、色、まだだけどHP, 攻撃の威力などが既にテンプレとして与えられてると。
+// こっちではそのidを指定するだけで敵が配置されるようにしたいね。で、こっちでは動きを指定するだけにするとか。
+// たとえば円軌道上にいくつかの敵を等間隔で配置してぐるぐる回させる、
+// たとえば直線上に並べる、3×3状に並べる、5×2状に並べる、行ったり来たりさせる、
+// あるいは親玉がいてそこから無数に敵が出てきて、大元を倒すと全員倒れて次のフェイズ、とか。
+// だからそういうのまで含めてここで決めようってなっちゃうともう意味不明の極みでしょ。
+// 多分、ここ最近のもやもやの一番大きな原因がそれなんじゃないかって思った。事前に決めておくんだ。
+// というか作っておくんだよ、モンスターを。後はそれに動きを付けて配置するだけでいいんだ。
+// あ、bullet関連のメソッドはenemyGenerator持ちだけど。切り崩す処理とかも書かないと。
+
 
 // ----------------------------------------------------------------------------------------------- //
 // control Gun. gunにセットして使う。
@@ -1032,7 +1139,8 @@ class playFlow extends flow{
       // 初期状態でのガンの設定はconstructorに書く・・かも。
       // つまりconstructorに初期の直進オンリーのガンだけかいておいてあとはクリアするたびに
       // 追加されて行って追加されたガンは前のステージでも使えるっていうふうにしようねっていう話。
-      this._gun.setParameter(60, 240, 15, 15);
+      this._gun.setPos(60, 240);
+      this._gun.setParameter(15, 15);
 
       // とりあえずめんどくさいので
       let flow_0_0 = new setVelocityHub(3, 0);
@@ -1040,7 +1148,8 @@ class playFlow extends flow{
       let shot_0 = playFlow.createShot([flow_0_0, flow_0_1], 1, 0, 10);
       this._gun.registShot(shot_0);
 
-      let flow_1_0 = new n_wayHub(10, 0, PI / 4, 1);
+      //let flow_1_0 = new n_wayHub(10, 0, PI / 4, 1);
+      let flow_1_0 = new n_waySimpleHub(10, 15, 3);
       let flow_1_1 = new matrixArrow(1.01, 0, 0, 0.8, 420);
       let shot_1 = playFlow.createShot([flow_1_0, flow_1_1], 3, 10, 25);
       this._gun.registShot(shot_1);
