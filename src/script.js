@@ -818,7 +818,7 @@ class enemy extends fireUnit{
     })
     if(this.wait > 0){
       this.wait--;
-      if(this.wait === 0){ this.revolve(); } // waitが0になるたびに次のshot,と切り替わる
+      // revolveはオートでなく、flowで指定できるようにしたい。その方が汎用性ありそう。
     } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
     this.currentFlow.execute(this); // この場合は動く感じで。
     // fireはここに書こうと思ってたけどconstantFlow側でいいかな・・flowによる制御も色々考えたい所。
@@ -849,8 +849,8 @@ function createSimpleEnemy(id, _enemy){
   // 弾数は2, 4, 6. この情報を元にmagazineに装填される
   _enemy.stock = 1 + 1 * id;
   // muzzleに入れるのは各々真正面、2方向、3方向で直線的。角度は30°くらいで。arcHub使う。
-  let f_0 = new n_waySimpleHub(-2, 4, id + 1);
-  let f_1 = new matrixArrow(1.01, 0, 0, 0.8, 360);
+  let f_0 = new n_waySimpleHub(-4, 6, id + 1);
+  let f_1 = new matrixArrow(1.01, 0, 0, 0.9, 360);
   f_0.addFlow(f_1);
   _enemy.muzzle.push({cost: id + 1, hue: id * 5, initialFlow: f_0, wait: 10});
   _enemy.bodyHue = id * 5; // 5, 10, 15.
@@ -1264,6 +1264,8 @@ class playFlow extends flow{
       // hue: 弾の色
       // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
       // wait: 撃ってから次に撃てるようになるまでのインターバル
+      // damage: 弾がgunに与えるダメージ
+      // maxSpeed: xとかy方向のスピードの最大値、たとえばx方向は5まで、とか。
 
       // enemyGeneratorの準備
       this._enemyGenerator.initialize(20, 200);
@@ -1274,7 +1276,7 @@ class playFlow extends flow{
       let n = 3;
       // 9個flowがあって、9匹用意することに。
       let dataSet = [];
-      for(let i = 0; i < 9; i++){ dataSet.push({enemyId:0, flowId:i}); }
+      for(let i = 0; i < 9; i++){ dataSet.push({enemyId:i % 3, flowId:i}); }
       this._enemyGenerator.setFlow(new generateFlow_line(posArray, span, dx, dy, n, dataSet));
       this._enemyGenerator.activate();
     }
