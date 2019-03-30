@@ -4,6 +4,18 @@
 // とりあえずいきなり動かすでいいよ。
 // てかもうさっさと動かしたい気持ちでいっぱい
 // あ、なんかすごい音がしてる・・やっぱ相当負担かかってるなー・・無理させないようにしよ。
+
+// 次にやること・・
+// 1. enemyとplayerBulletの衝突判定を作る
+// 2. enemyBulletとgunの衝突判定を作る
+// 3. enemyBulletとplayerBulletに威力を与える
+// 4. enemyとgunにHPを与える
+// 5. gunのHPが表示されるようにする
+// 6. enemyのHPが減るようにする
+// 7. enemyのHPが0になった時の仕様を作る
+// gunのHPが0になった時の仕様とかgameoverのstateは後回しで。
+// とりあえず敵全員倒したらclearにしてclearのstateも作るけどそれも後回しで。
+// とりあえず敵倒せるようにするか・・。
 let all;
 let hueSet = [];
 let clickPosX;
@@ -313,14 +325,14 @@ class constantFlow extends flow{
   }
   initialize(_enemy){
     _enemy.timer.setting(this.span);
-    _enemy.setState(ACT);
   }
   execute(_enemy){
-    if(_enemy.state === PRE){ this.initialize(_enemy); }
+    if(_enemy.state === PRE){ this.initialize(_enemy); _enemy.setState(ACT); }
     _enemy.timer.step();
     let prg = _enemy.timer.getProgress();
     _enemy.pos.x = map(prg, 0, 1, this.from.x, this.to.x);
     _enemy.pos.y = map(prg, 0, 1, this.from.y, this.to.y);
+    _enemy.fire(); // ここでfire.
     if(prg === 1){
       this.convert(_enemy);
     }
@@ -793,6 +805,8 @@ class enemy extends fireUnit{
     super(); // bulletVolumeについては、enemyGenerator側で指定するからいい。（non-Activeなやつから切り出して使う）
     // speedも位置ベースの動きをする分には問題ない、なんなら速度も加えてそういう動きも出来るように改良する。
     // magazineとstockはenemyGeneratorが決めるってこと
+    this._type = 'enemy';
+    this.timer = new counter(); // timerなかったん・・・
   }
   revolve(){
     this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
@@ -807,8 +821,7 @@ class enemy extends fireUnit{
       if(this.wait === 0){ this.revolve(); } // waitが0になるたびに次のshot,と切り替わる
     } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
     this.currentFlow.execute(this); // この場合は動く感じで。
-    this.fire(); // fireは毎フレーム。waitだったり弾が足りないと発射されない感じ。
-    // たとえばstock上限が5で5発を10フレーム間隔で発射する場合そのあとそれが戻るまで間が空くとかそういう感じ。
+    // fireはここに書こうと思ってたけどconstantFlow側でいいかな・・flowによる制御も色々考えたい所。
   }
   reset(){
     this.muzzle = [];
@@ -816,6 +829,9 @@ class enemy extends fireUnit{
     this.cursor = 0;
     this.wait = 0;
     this.bodyHue = 0;
+    for(let i = 0; i < this.magazine.length; i++){
+      this.magazine[i].setParent(undefined); // 親の履歴を消す（再利用化）
+    }
     this.magazine = [];
     this.stock = 0;
   }
@@ -823,16 +839,17 @@ class enemy extends fireUnit{
 
 function createEnemy(id, _enemy){
   if(id < 3){ createSimpleEnemy(id, _enemy); }
+  // ここに追加していく
 }
 
 function createSimpleEnemy(id, _enemy){
-  // id === 0, 1, 2のとき30x30, 20x20, 10x10. たとえば3, 4, 5だったら3を引くなど。
-  _enemy.setParameter(30 - id * 10, 30 - id * 10);
+  // id === 0, 1, 2のとき30x30, 24x24, 18x18. たとえば3, 4, 5だったら3を引くなど。
+  _enemy.setParameter(15 - id * 3, 15 - id * 3);
   // HPは10, 20, 30.
-  // 弾数は5, 10, 15. この情報を元にmagazineに装填される
-  _enemy.stock = 5 + 5 * id;
+  // 弾数は2, 4, 6. この情報を元にmagazineに装填される
+  _enemy.stock = 1 + 1 * id;
   // muzzleに入れるのは各々真正面、2方向、3方向で直線的。角度は30°くらいで。arcHub使う。
-  let f_0 = new n_waySimpleHub(-10, 15, id + 1);
+  let f_0 = new n_waySimpleHub(-2, 4, id + 1);
   let f_1 = new matrixArrow(1.01, 0, 0, 0.8, 360);
   f_0.addFlow(f_1);
   _enemy.muzzle.push({cost: id + 1, hue: id * 5, initialFlow: f_0, wait: 10});
@@ -840,7 +857,7 @@ function createSimpleEnemy(id, _enemy){
 }
 
 class bullet extends actor{
-  constructor(type, parent){
+  constructor(type, parent = undefined){
     super();
     this._type = type; // playerBulletかenemyBulletか
     this.parent = parent; // bulletの所属先。generatorかgunかって話。
@@ -858,6 +875,9 @@ class bullet extends actor{
   }
   setHueValue(newHueValue){
     this.hueValue = newHueValue;
+  }
+  setParent(newParent){
+    this.parent = newParent; // 親の設定。enemyの場合はコロコロ変わるので。
   }
   vanish(){
     // 消滅条件. みたすときtrueを返す
@@ -889,7 +909,7 @@ class enemy extends actor{
 }*/ // enemyはfireUnitの派生として書くことになった
 
 class enemyGenerator extends actor{
-  constructor(enemyVolume, bulletVolume){
+  constructor(){
     super();
     this.timer = new counter(); // 敵を出現させるカウント
     // ステージごとに決められる倒すべき敵の総数。
@@ -900,7 +920,39 @@ class enemyGenerator extends actor{
     // this.bossEnemy; // ？？？
     this.bulletSet = [];
   }
+  update(){
+    if(!this.isActive){ return; }
+    this.currentFlow.execute(this);
+    this.enemySet.forEach(function(e){ e.update(); }) // 上書き忘れてた・・
+  }
+  initialize(enemyVolume, bulletVolume){
+    // 初期化・・。
+    this.enemySet = [];
+    this.bulletSet = [];
+    for(let i = 0; i < enemyVolume; i++){
+      this.enemySet.push(new enemy());
+    }
+    for(let i = 0; i < bulletVolume; i++){
+      this.bulletSet.push(new bullet('enemyBullet')); // 親は定義しない
+    }
+  }
+  chargeBullet(_enemy){
+    let n = _enemy.stock;
+    let i = 0;
+    while(n > 0){
+      if(this.bulletSet[i].parent !== undefined){ i++; continue; }
+      let b = this.bulletSet[i];
+      b.setParent(_enemy); // 親を設定するのはここ
+      _enemy.magazine.push(b);
+      n--; // これしないと無限ループになる
+    }
+  }
+  render(){
+    this.enemySet.forEach(function(e){ e.render(); })
+  }
 }
+// enemyGeneratorはステージセレクトからプレイステートに行くたびに新しいものが用意されるイメージで。
+// gunの方はリセットしながら引き続き再利用する。新しい種類が増えて行ったりするので。
 // 倒れたenemyは戻る・・一応白の棒で目とか付けた方が分かりやすそう。
 
 
@@ -926,30 +978,66 @@ class enemyGenerator extends actor{
 // idで出現場所指定してそれぞれ配列で（以下略）
 // 基本となるいくつかのあれ、それを平行移動でコピーする。そのベクトルを引数で渡す。むむ。。
 class generateFlow_line extends flow{
-  constructor(posArray, span, dx, dy, n){
+  constructor(posArray, span, dx, dy, n, dataSet){
     // posArrayは基本となるいくつかのpos,spanはその間を遷移する必要フレーム数、dx, dyはずらし、nはいくつまで
-    // ずらすか, idSetは出現させる敵のid, segIdSetはどのセグメントに出現させるか、startIdSetはそのセグメントの
-    // 何番目からスタートするのか。以上。今までやってきたmoving~~~と同じことやってるのよね。
+    // ずらすか, dataSetはenemyのdataと出現位置のデータ。多分他にも色々（？）
+    // 以上。今までやってきたmoving~~~と同じことやってるのよね。
+    // span・・・spanSetにする必要があれば、そうするけど。
+    super();
     this.flowSet = [];
-    this.segmentLength = posArray.length; // enemyを配置するのに使う。mにあたる数。
+    let m = posArray.length; // 各セグメントのシークエンスの長さ
     posArray.push(posArray[0]); // おしりに頭をくっつける（煩雑さ回避）
+
     for(let i = 0; i < n; i++){
-      for(let k = 0; k < posArray.length; k++){
+      let segmentFlowSet = []; // connectingまで一通り終わってからまとめて放り込む。...が使えそう。
+      for(let k = 0; k < m; k++){
         let from = createVector(posArray[k].x + dx * i, posArray[k].y + dy * i);
         let to = createVector(posArray[k + 1].x + dx * i, posArray[k + 1].y + dy * i);
-        this.flowSet.push(new constantFlow(from, to, span));
+        segmentFlowSet.push(new constantFlow(from, to, span));
       }
+      connectFlows(segmentFlowSet, arSeq(0, 1, m), arSeq(1, 1, m - 1).concat([0]));
+      this.flowSet.push(...segmentFlowSet); // 展開して放り込む。
     }
+
+    this.dataSet = dataSet; // 敵を配置するためのデータセット。enemyIdとflowId.
+    // enemyIdのenemyにflowIdのflowをセット、enemyは_generatorからnon-Activeなやつをコピーして使う
     this.enemySet = [];
     this.initialState = PRE;
   }
-  createEnemy(dataSet){
-    // 辞書にしよう。辞書の配列。enemyId, segId, startId.
-    // enemyIdに従ってenemySetが作られる、というか放り込まれる。このリストは全員倒したかどうかを調べるのに使われる。
-    // たとえば各segmentがm個のposからなりsegmentがn個の場合,セットするflowの絶対idはsegId * m + startIdで
-    // 計算される。
-    // なお、bulletの装填については別メソッドでenemyGeneratorが行うことになっている、executeのPREに書けばいいんじゃない。
-    // initializeでまとめてやります。
+  initialize(_generator){
+    // this.enemySetに_generatorのnon-Activeなenemyをコピーする。
+    let n = this.dataSet.length;
+    let i = 0;
+    while(n > 0){
+      if(_generator.enemySet[i].isActive){ i++; continue; } // Activeなものをスルーして
+      this.enemySet.push(_generator.enemySet[i]); i++;
+      n--;
+    }
+    for(let i = 0; i < this.dataSet.length; i++){
+      let data = this.dataSet[i];
+      let _enemy = this.enemySet[i];
+      createEnemy(data['enemyId'], _enemy);
+      _enemy.setFlow(this.flowSet[data['flowId']]);
+      console.log(_enemy.currentFlow);
+      _generator.chargeBullet(_enemy); // bulletの装填メソッド
+      _enemy.activate();
+    }
+  }
+  // よく考えたらenemyってgeneratorにセットされてるやつを・・あれするんだっけ。
+  execute(_generator){
+    if(_generator.state === PRE){
+      this.initialize(_generator);
+      _generator.setState(ACT);
+    }
+    // 今回はここでenemyのsettingをしてるけど、flowによっては何匹倒したら離脱、とかそういうのもありだからね
+    // そういう場合にはnon-Activeなやつを～ってのが意味を持つんだろうけど今回はそういうの、無しで。
+    let flag = true;
+    for(let i = 0; i < this.dataSet.length; i++){
+      if(this.enemySet[i].isActive){ flag = false; break; } // 誰かしら生きてるなら引き続き
+    }
+    // この他に、親が生きていれば再現なく周りの敵を復活させるから親玉倒したらコンバート、でもよさそう。
+    // その場合は復活メソッドを用意しなきゃ・・
+    if(flag){ this.convert(_generator); } // 全員倒したらコンバート
   }
 }
 
@@ -1079,6 +1167,7 @@ class playFlow extends flow{
     this._gun = new gun(100, 5); // 初期状態での弾の数
     // いずれはinitializeでパラメータを設定することになりそう。スピードとか大きさとか。
     //this._enemyGenerator = new enemyGenerator(20, 200); // 一度に出現する敵の数、合計の弾の数
+    this._enemyGenerator = new enemyGenerator(); // initializeはsetStageで行う
     this.initialState = PRE;
     this.stageNumber = stageNumber; // 1なら1, 2なら2.
     this.play_on = false; // ステージに来てinitializeしたのちtrueにする
@@ -1101,7 +1190,7 @@ class playFlow extends flow{
     }
     // とりあえずupdateくらいで
     this._gun.update();
-    //this._enemyGenerator.update();
+    this._enemyGenerator.update(); // updateされない？？
     // Pボタンでポーズ
     if(keyFlag & 64){
       this.nextStateIndex = 0;
@@ -1126,7 +1215,7 @@ class playFlow extends flow{
     background(this.backgroundColor);
     //image(bgs[0], 0, 0);
     this._gun.render();
-    //this._enemyGenerator.render();
+    this._enemyGenerator.render();
   }
   setStage(){
     if(this.stageNumber === 1){
@@ -1175,6 +1264,19 @@ class playFlow extends flow{
       // hue: 弾の色
       // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
       // wait: 撃ってから次に撃てるようになるまでのインターバル
+
+      // enemyGeneratorの準備
+      this._enemyGenerator.initialize(20, 200);
+      let posArray = [createVector(300, 50), createVector(400, 50), createVector(400, 100)];
+      let span = 20;
+      let dx = 10;
+      let dy = 120;
+      let n = 3;
+      // 9個flowがあって、9匹用意することに。
+      let dataSet = [];
+      for(let i = 0; i < 9; i++){ dataSet.push({enemyId:0, flowId:i}); }
+      this._enemyGenerator.setFlow(new generateFlow_line(posArray, span, dx, dy, n, dataSet));
+      this._enemyGenerator.activate();
     }
   }
   static createShot(flowSet, cost, hue, wait){
@@ -1249,10 +1351,106 @@ function activateAll(actorSet){
   actorSet.forEach(function(_actor){ _actor.activate(); })
 }
 
+// 面倒なので、idSetのflowにdestinationSetの各flowが登録されるようにした。
+function connectFlows(flowSet, idSet, destinationSet){
+  for(let i = 0; i < idSet.length; i++){
+    flowSet[idSet[i]].addFlow(flowSet[destinationSet[i]]);
+  }
+}
+
 // -------------------------------------------------------------------------------------------------- //
-// other utility.
+// utility.
+function constSeq(c, n){
+  // cがn個。
+  let array = [];
+  for(let i = 0; i < n; i++){ array.push(c); }
+  return array;
+}
+
+function jointSeq(arrayOfArray){
+  // 全部繋げる
+  let array = arrayOfArray[0];
+  for(let i = 1; i < arrayOfArray.length; i++){
+    array = array.concat(arrayOfArray[i]);
+  }
+  return array;
+}
+
+function multiSeq(a, m){
+  // arrayがm個
+  let array = [];
+  for(let i = 0; i < m; i++){ array = array.concat(a); }
+  return array;
+}
+
+function arSeq(start, interval, n){
+  // startからintervalずつn個
+  let array = [];
+  for(let i = 0; i < n; i++){ array.push(start + interval * i); }
+  return array;
+}
+
+function arCosSeq(start, interval, n, radius = 1, pivot = 0){
+  // startからintervalずつn個をradius * cos([]) の[]に放り込む。pivotは定数ずらし。
+  let array = [];
+  for(let i = 0; i < n; i++){ array.push(pivot + radius * cos(start + interval * i)); }
+  return array;
+}
+
+function arSinSeq(start, interval, n, radius = 1, pivot = 0){
+  // startからintervalずつn個をradius * sin([]) の[]に放り込む。pivotは定数ずらし。
+  let array = [];
+  for(let i = 0; i < n; i++){ array.push(pivot + radius * sin(start + interval * i)); }
+  return array;
+}
+
+function rotationSeq(x, y, angle, n, centerX = 0, centerY = 0){
+  // (x, y)をangleだけ0回～n-1回回転させたもののセットを返す(中心はオプション、デフォルトは0, 0)
+  let array = [];
+  let vec = createVector(x, y);
+  array.push(createVector(x + centerX, y + centerY));
+  for(let k = 1; k < n; k++){
+    vec.set(vec.x * cos(angle) - vec.y * sin(angle), vec.x * sin(angle) + vec.y * cos(angle));
+    array.push(createVector(vec.x + centerX, vec.y + centerY));
+  }
+  return array;
+}
+
+function multiRotationSeq(array, angle, n, centerX = 0, centerY = 0){
+  // arrayの中身をすべて然るべくrotationしたものの配列を返す
+  let finalArray = [];
+  array.forEach(function(vec){
+    let rotArray = rotationSeq(vec.x, vec.y, angle, n, centerX, centerY);
+    finalArray = finalArray.concat(rotArray);
+  })
+  return finalArray;
+}
+
+function commandShuffle(array, sortArray){
+  // arrayを好きな順番にして返す。たとえばsortArrayが[0, 3, 2, 1]なら[array[0], array[3], array[2], array[1]].
+  let newArray = [];
+  for(let i = 0; i < array.length; i++){
+    newArray.push(array[sortArray[i]]);
+  }
+  return newArray; // もちろんだけどarrayとsortArrayの長さは同じでsortArrayは0~len-1のソートでないとエラーになる
+}
+
+function reverseShuffle(array){
+  // 通常のリバース。
+  let newArray = [];
+  for(let i = 0; i < array.length; i++){ newArray.push(array[array.length - i - 1]); }
+  return newArray;
+}
 
 function randomInt(n){
   // 0, 1, ..., n-1のどれかを返す
   return Math.floor(random(n));
+}
+
+function getVector(posX, posY){
+  let vecs = [];
+  for(let i = 0; i < posX.length; i++){
+    vecs.push(createVector(posX[i], posY[i]));
+  }
+  return vecs;
 }
