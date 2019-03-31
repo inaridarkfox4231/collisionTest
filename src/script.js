@@ -22,6 +22,8 @@ let clickPosX;
 let clickPosY;
 let keyFlag;
 
+let collisionCount;
+
 // let bgs = [];
 
 const IDLE = 0;
@@ -31,6 +33,8 @@ const ACT = 2;
 // 時間表示の設置。
 const timeCounter = document.createElement('div');
 document.body.appendChild(timeCounter);
+const collisionCounter = document.createElement('div');
+document.body.appendChild(collisionCounter);
 // メインループだけ調べる
 
 /*
@@ -50,6 +54,8 @@ function setup(){
   clickPosY = -1; // クリックするとpos情報が入る
   keyFlag = 0; // キータイプ情報
   all.activate(); // activate. これですべてが動き出すといいのだけどね。
+
+  collisionCount = 0;
 }
 
 // initialFlowでtitleにすることってできる？
@@ -61,6 +67,8 @@ function draw(){
   const end = performance.now();
   const timeStr = (end - start).toPrecision(4);
   timeCounter.innerText = `${timeStr}ms`;
+
+  collisionCounter.innerText = collisionCount.toString();
 }
 
 // ------------------------------------------------------------------------------------- //
@@ -674,7 +682,7 @@ class fireUnit extends actor{
     super();
     // typeは派生先で
     this.pos = createVector();
-    this.w = 0; // 描画用
+    this.w = 0; // 横幅、縦幅の半分の長さ。
     this.h = 0;
     // speedはgunだけ（移動操作）
     this.muzzle = []; // shotという辞書を格納する、initialFlowとかwaitについての情報が入ってる
@@ -684,6 +692,7 @@ class fireUnit extends actor{
     this.wait = 0;
     this.stock = 0; // bulletVolumeはenemyでは可変。
     this.bodyHue = 0;
+    this.myCollider = new rectangleCollider(0, 0, this.w * 2, this.h * 2);
   }
   setPos(x, y){
     this.pos.set(x, y);
@@ -720,6 +729,7 @@ class fireUnit extends actor{
       _bullet.setHueValue(shot['hue']); // hueの値
       _bullet.setFlow(shot['initialFlow']);
       _bullet.setPos(this.pos.x, this.pos.y);
+      _bullet.setDamage(shot['damage']); // ダメージ設定
       _bullet.activate(); // used要らない。bullet自身が判断して自分の親のmagazineに戻ればいいだけ。
       _bullet.visible = true;
     }
@@ -732,6 +742,7 @@ class fireUnit extends actor{
     })
     if(this.wait > 0){ this.wait--; } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
     this.currentFlow.execute(this);
+    this.myCollider.update({x:this.pos.x, y:this.pos.y, w:this.w * 2, h:this.h * 2});
   }
   render(){
     this.magazine.forEach(function(b){ if(b.isActive){ b.render(); } });
@@ -749,6 +760,11 @@ class fireUnit extends actor{
   // やられたときのresetはmagazineを空にして参照を入れ直す準備をする（enemyのmagazineは
   // enemyGeneratorの一部分（親がundefined）を切り離して使う）。resetの時に・・
   // enemyGeneratorをresetするときにそこに入ってるenemyBulletの親をまとめてundefinedにする仕様
+  hit(other){
+    // ダメージを受ける仕様を書きたいね
+    if(other._type === 'enemyBullet'){ console.log('gun %d damaged!!', other.damage); }
+    else if(other._type === 'playerBullet'){ console.log('enemy %d damaged!!', other.damage); }
+  }
 }
 
 class gun extends fireUnit{
@@ -811,25 +827,16 @@ class enemy extends fireUnit{
   revolve(){
     this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
   }
-  update(){
-    if(!this.isActive){ return; }
-    this.magazine.forEach(function(b){
-      if(b.isActive){ b.update(); } // activeなものだけupdateする
-    })
-    if(this.wait > 0){
-      this.wait--;
-      // revolveはオートでなく、flowで指定できるようにしたい。その方が汎用性ありそう。
-    } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
-    this.currentFlow.execute(this); // この場合は動く感じで。
-    // fireはここに書こうと思ってたけどconstantFlow側でいいかな・・flowによる制御も色々考えたい所。
-  }
   reset(){
+    // enemyは再利用するのでそのためのデフォルト化処理を書いている。
+    // ここら辺はもうちょっと先まで行かないと検証できない、その都度確認する。
     this.muzzle = [];
     this.currentMuzzleIndex = 0;
     this.cursor = 0;
     this.wait = 0;
     this.bodyHue = 0;
     for(let i = 0; i < this.magazine.length; i++){
+      this.magazine[i].setFlow(undefined); // とりあえず消滅してもらう。このとき親がいないとエラーになるので先に書く。
       this.magazine[i].setParent(undefined); // 親の履歴を消す（再利用化）
     }
     this.magazine = [];
@@ -837,9 +844,11 @@ class enemy extends fireUnit{
   }
 }
 
+// enemyの設定
 function createEnemy(id, _enemy){
   if(id < 3){ createSimpleEnemy(id, _enemy); }
   // ここに追加していく
+  _enemy.visible = true; // 生成するときにtrueにしてやられたらfalseに戻す
 }
 
 function createSimpleEnemy(id, _enemy){
@@ -852,7 +861,8 @@ function createSimpleEnemy(id, _enemy){
   let f_0 = new n_waySimpleHub(-4, 6, id + 1);
   let f_1 = new matrixArrow(1.01, 0, 0, 0.9, 360);
   f_0.addFlow(f_1);
-  _enemy.muzzle.push({cost: id + 1, hue: id * 5, initialFlow: f_0, wait: 10});
+  // ダメージは3, 2, 1とする。
+  _enemy.muzzle.push({cost: id + 1, hue: id * 5, initialFlow: f_0, wait: 10, damage: 4 - id});
   _enemy.bodyHue = id * 5; // 5, 10, 15.
 }
 
@@ -860,11 +870,15 @@ class bullet extends actor{
   constructor(type, parent = undefined){
     super();
     this._type = type; // playerBulletかenemyBulletか
+    this.w = 5;  // 幅の半分を設定したほうが都合がいい。
+    this.h = 5;
     this.parent = parent; // bulletの所属先。generatorかgunかって話。
     this.pos = createVector();
     this.velocity = createVector();
     this.timer = new counter();
     this.hueValue = 0;
+    this.damage = 1; // ダメージ量
+    this.myCollider = new rectangleCollider(0, 0, this.w * 2, this.h * 2);
     this.visible = false; // 当たり判定に使う
   }
   setPos(x, y){
@@ -879,6 +893,9 @@ class bullet extends actor{
   setParent(newParent){
     this.parent = newParent; // 親の設定。enemyの場合はコロコロ変わるので。
   }
+  setDamage(newDamage){
+    this.damage = newDamage; // ダメージ再設定
+  }
   vanish(){
     // 消滅条件. みたすときtrueを返す
     return (this.pos.x <= 5) || (this.pos.x >= width - 5) || (this.pos.y <= 5) || (this.pos.y >= height -5);
@@ -888,14 +905,27 @@ class bullet extends actor{
     this.parent.stock++; // ストックを戻す
     this.visible = false;
   }
+  // updateを上書きしてcolliderが更新されるようにする
+  update(){
+    if(!this.isActive){ return; } // ここはそのまま
+    this.currentFlow.execute(this); // これだけ。すっきりした。
+    this.myCollider.update({x:this.pos.x, y:this.pos.y, w:this.w * 2, h:this.h * 2});
+  }
   render(){
     if(!this.visible){ return; }
     // その色の四角形を描く、位置に。
     push();
     fill(this.hueValue, 100, 100);
     noStroke();
-    rect(this.pos.x - 5, this.pos.y - 5, 10, 10);
+    rect(this.pos.x - this.w, this.pos.y - this.h, this.w * 2, this.h * 2);
     pop();
+  }
+  hit(other){
+    // bullet側なので当たったら消える仕組みを設けたい所。
+    // ただ、当ててもダメージを与えられない場合にも消えて欲しいというふうになるかもしれないので、
+    // ダメージを受けるかどうかのフラグが欲しいところ。でないとダメージを与えられない場合にすりぬけてしまうので。
+    if(other._type === 'enemy'){ console.log('enemy %d damage!!', this.damage); }
+    else if(other._type === 'gun'){ console.log('gun %d damage!!', this.damage); }
   }
 }
 
@@ -1018,7 +1048,6 @@ class generateFlow_line extends flow{
       let _enemy = this.enemySet[i];
       createEnemy(data['enemyId'], _enemy);
       _enemy.setFlow(this.flowSet[data['flowId']]);
-      console.log(_enemy.currentFlow);
       _generator.chargeBullet(_enemy); // bulletの装填メソッド
       _enemy.activate();
     }
@@ -1176,6 +1205,9 @@ class playFlow extends flow{
     // playを抜けるときにここをfalseにすることで再初期化を促す感じ。
     this.backgroundColor = color(70);
     this.nextStateIndex = 0; // pause, gameover, clearが0, 1, 2.
+    // 衝突関連。毎回初期化する。
+    this._qTree = new linearQuadTreeSpace(width, height, 3);
+    this._detector = new collisionDetector();
   }
   initialize(_entity){
     if(this.play_on){ return; }
@@ -1191,11 +1223,146 @@ class playFlow extends flow{
     // とりあえずupdateくらいで
     this._gun.update();
     this._enemyGenerator.update(); // updateされない？？
+
+    // 衝突判定関連(collisionOccurはとりあえずなしで)
+    this._qTree.clear(); // 線型四分木のクリア
+
+    // 登録するのはgun, gunの持ってるbullet, Activeなenemy, Activeなenemyの持ってるbullet.
+    // fireUnitにもvisibleを設定しないといけない。
+
+    if(this._gun.isActive){ this._qTree.addActor(this._gun); }
+    this._gun.magazine.forEach((b) => {
+      if(b.visible){
+        this._qTree.addActor(b);
+      }
+    });
+    // enemyGeneratorのbulletSetってやった方が節約になりそうな気がする
+    this._enemyGenerator.enemySet.forEach((e) => {
+      if(e.isActive){
+        this._qTree.addActor(e);
+      }
+    });
+    this._enemyGenerator.bulletSet.forEach((b) => {
+      if(b.visible){
+        this._qTree.addActor(b);
+      }
+    });
+/*
+    this.actors.forEach((a) => {
+      if(a.visible){
+        this._qTree.addActor(a); // 登録
+        collisionOccur = true;
+      } // visibleなものしか登録しない
+    });
+*/
+    this._hitTest(); // 判定する。_hittestの中でどの組み合わせなら判定するかとか決めるつもり。
+
     // Pボタンでポーズ
     if(keyFlag & 64){
       this.nextStateIndex = 0;
       this.convert(_entity); flagReset();
     }
+  }
+  // 当たり判定。
+  _hitTest(currentIndex = 0, objList = []) {
+    const currentCell = this._qTree.data[currentIndex];
+
+    // 現在のセルの中と、衝突オブジェクトリストとで
+    // 当たり判定を取る。
+    this._hitTestInCell(currentCell, objList);
+
+    // 次に下位セルを持つか調べる。
+    // 下位セルは最大4個なので、i=0から3の決め打ちで良い。
+    let hasChildren = false;
+    for(let i = 0; i < 4; i++) {
+      const nextIndex = currentIndex * 4 + 1 + i;
+
+      // 下位セルがあったら、
+      const hasChildCell = (nextIndex < this._qTree.data.length) && (this._qTree.data[nextIndex] !== null);
+      hasChildren = hasChildren || hasChildCell;
+      if(hasChildCell) {
+        // 衝突オブジェクトリストにpushして、
+        objList.push(...currentCell);
+        // 下位セルで当たり判定を取る。再帰。
+        this._hitTest(nextIndex, objList);
+      }
+    }
+
+    // 終わったら追加したオブジェクトをpopする。
+    if(hasChildren) {
+      const popNum = currentCell.length;
+      for(let i = 0; i < popNum; i++) {
+        objList.pop();
+      }
+    }
+  }
+
+  // セルの中の当たり判定を取る。
+  // 衝突オブジェクトリストとも取る。
+  _hitTestInCell(cell, objList) {
+    // セルの中。総当たり。
+    const length = cell.length;
+    const cellColliderCahce = new Array(length); // globalColliderのためのキャッシュ。
+    if(length > 0) { cellColliderCahce[0] = cell[0].myCollider; }
+
+    for(let i=0; i < length - 1; i++) {
+      const obj1 = cell[i];
+      const collider1  = cellColliderCahce[i]; // キャッシュから取ってくる。
+      for(let j=i+1; j < length; j++) {
+        const obj2 = cell[j];
+
+        // キャッシュから取ってくる。
+        // ループ初回は直接取得してキャッシュに入れる。
+        let collider2;
+        if(i === 0) {
+          collider2 = obj2.myCollider;
+          cellColliderCahce[j] = collider2;
+        } else {
+          collider2 = cellColliderCahce[j];
+        }
+        // Cahceへの代入までスルーしちゃうとまずいみたい
+        // ここでobj1, obj2の性質によるバリデーションかけてfalseならcontinue
+        if(!this.validation(obj1._type, obj2._type)){ continue; }
+
+        const hit = this._detector.detectCollision(collider1, collider2);
+
+        if(hit) {
+          collisionCount++;
+          //obj1.hit(obj2);
+          //obj2.hit(obj1);
+        }
+      }
+    }
+
+    // 衝突オブジェクトリストと。
+    const objLength = objList.length;
+    const cellLength = cell.length;
+    for(let i=0; i<objLength; i++) {
+      const obj = objList[i];
+      const collider1 = obj.myCollider; // 直接取得する。
+      for(let j=0; j<cellLength; j++) {
+        const cellObj = cell[j];
+
+        // objとcellobjの性質からバリデーションかけてfalseならcontinue.
+        if(!this.validation(obj._type, cellObj._type)){ continue; }
+
+        const collider2 = cellColliderCahce[j]; // キャッシュから取ってくる。
+        const hit = this._detector.detectCollision(collider1, collider2);
+
+        if(hit) {
+          collisionCount++; // ぶつかった回数
+          //obj.hit(cellObj);
+          //cellObj.hit(obj);
+        }
+      }
+    }
+  }
+  validation(type1, type2){
+    if(type1 === 'enemy' && type2 === 'playerBullet'){ return true; }
+    if(type1 === 'playerBullet' && type2 === 'enemy'){ return true; }
+    if(type1 === 'gun' && type2 === 'enemyBullet'){ return true; }
+    if(type1 === 'enemyBullet' && type2 === 'gun'){ return true; }
+    return false;
   }
   convert(_entity){
     console.log(_entity);
@@ -1234,20 +1401,20 @@ class playFlow extends flow{
       // とりあえずめんどくさいので
       let flow_0_0 = new setVelocityHub(3, 0);
       let flow_0_1 = new matrixArrow(1.05, 0, 0, 1.05, 240);
-      let shot_0 = playFlow.createShot([flow_0_0, flow_0_1], 1, 0, 10);
+      let shot_0 = playFlow.createShot([flow_0_0, flow_0_1], 1, 0, 10, 5);
       this._gun.registShot(shot_0);
 
       //let flow_1_0 = new n_wayHub(10, 0, PI / 4, 1);
       let flow_1_0 = new n_waySimpleHub(10, 15, 3);
       let flow_1_1 = new matrixArrow(1.01, 0, 0, 0.8, 420);
-      let shot_1 = playFlow.createShot([flow_1_0, flow_1_1], 3, 10, 25);
+      let shot_1 = playFlow.createShot([flow_1_0, flow_1_1], 3, 10, 25, 3);
       this._gun.registShot(shot_1);
 
       let flow_2_0 = new setVelocityHub(10, 0);
       let flow_2_1 = new matrixArrow(0.98, 0, 0, 0.98, 30)
       let flow_2_2 = new limitedCircularDelayHub(5, 20, 4, 4, 0, PI / 10);
       let flow_2_3 = new matrixArrow(1.01, 0, 0, 1.01, 480)
-      let shot_2 = playFlow.createShot([flow_2_0, flow_2_1, flow_2_2, flow_2_3], 20, 17, 40);
+      let shot_2 = playFlow.createShot([flow_2_0, flow_2_1, flow_2_2, flow_2_3], 20, 17, 40, 1);
       // まとめてflow用意してそれらをconnectしてshotにするまでをstaticかなんかでメソッドにするといいかもね。
       this._gun.registShot(shot_2);
 
@@ -1276,18 +1443,18 @@ class playFlow extends flow{
       let n = 3;
       // 9個flowがあって、9匹用意することに。
       let dataSet = [];
-      for(let i = 0; i < 9; i++){ dataSet.push({enemyId:i % 3, flowId:i}); }
+      for(let i = 0; i < 9; i++){ dataSet.push({enemyId:0, flowId:i}); }
       this._enemyGenerator.setFlow(new generateFlow_line(posArray, span, dx, dy, n, dataSet));
       this._enemyGenerator.activate();
     }
   }
-  static createShot(flowSet, cost, hue, wait){
+  static createShot(flowSet, cost, hue, wait, damage){
     // shotを作る～flowSetに配列を入れるとその順にくっつけてcostとかhueとか入れて辞書作ってくれる
     // もっとも、分岐させる場合はその限りではない（挙動をランダムで変化させるとか）ので個別に作る必要があるけど。
     for(let i = 1; i < flowSet.length; i++){
       flowSet[i - 1].addFlow(flowSet[i]);
     }
-    return {cost:cost, hue:hue, initialFlow:flowSet[0], wait:wait};
+    return {cost:cost, hue:hue, initialFlow:flowSet[0], wait:wait, damage:damage};
   }
   reset(){
     this._gun.reset(); // gunの所に書く
