@@ -241,6 +241,9 @@ class n_waySimpleHub extends flow{
     this.currentIndex = (this.currentIndex + 1) % this.directionArray.length;
     this.convert(_bullet);
   }
+  reset(){
+    this.currentIndex = 0; // 念のため
+  }
 }
 // これを用いたn_wayGunの作り方。
 // まず横方向の速度に対する縦方向の速度は比率で、この差でいくつおきに・・
@@ -731,6 +734,7 @@ class fireUnit extends actor{
         this.cursor = (this.cursor + 1) % this.magazine.length; // カーソルを進める. こっちに書かないとね。
         continue;
       }
+      // if(this._type === 'gun'){ console.log(n); }
       n--;
       let _bullet = this.magazine[this.cursor];
       _bullet.setHueValue(shot['hue']); // hueの値
@@ -740,16 +744,29 @@ class fireUnit extends actor{
       _bullet.activate(); // used要らない。bullet自身が判断して自分の親のmagazineに戻ればいいだけ。
       _bullet.visible = true;
     }
+    // activeなものはちゃんと3つになっている模様。じゃあなぜ・・
+    /*let c = 0;
+    if(this._type === 'gun'){
+      this.magazine.forEach(function(b){ if(b.isActive){ c++; } })
+      if(c > 0){ console.log('c = %d, setting', c); }
+    }*/
+    // うん。というわけで、この時点では3つactive・・
     this.wait = shot['wait']; // waitを設定
   }
   update(){
+    /*let c = 0;
+    if(this._type === 'gun'){
+      this.magazine.forEach(function(b){ if(b.isActive){ c++; } })
+      if(c > 0){ console.log('c = %d, updating', c); }
+    }*/
+    // なのにこの時点でもう2とか1になってるの。ミステリー・・
     if(!this.isActive){ return; }
     this.magazine.forEach(function(b){
-      if(b.isActive){ b.update(); } // activeなものだけupdateする
+      if(b.isActive){ b.update();} // activeなものだけupdateする
     })
     if(this.wait > 0){ this.wait--; } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
     this.currentFlow.execute(this);
-    this.myCollider.update({x:this.pos.x, y:this.pos.y, w:this.w * 2, h:this.h * 2});
+    this.myCollider.update({x:this.pos.x - this.w, y:this.pos.y - this.h, w:this.w * 2, h:this.h * 2});
   }
   render(){
     this.magazine.forEach(function(b){ if(b.isActive){ b.render(); } });
@@ -772,21 +789,16 @@ class fireUnit extends actor{
     // まずisActiveでないときは何も起きないってことで。
     // activeでもotherが消えてる時は何も起きないよね。
     // 両方activeならbulletのダメージとこっちのHPから挙動を決める。
-    if(!this.isActive){ return; }
-    if(!other.isActive){ return; }
-    if(this._type === 'enemy'){
-      this.changeHP(-other.damage);
-      if(this.currentHP === 0){ this.reset(); } // HPが0になったらリセットしてactiveもなくす
-    }else if(this._type === 'gun'){
-      this.changeHP(-other.damage);
-      // gunがHP0になった場合・・アニメは置いといて、とりあえずactiveは切る（でないとオーバーキルになる）。
-      // if(this.currentHP === 0){ this.reset(); }
-      // そのあと残機ありなら残機減らして再スタート、なしならgameoverにconvertする。それは残機をplayFlowが
-      // 監視していて残機0を読み取ったらgameoverにconvertする。
-    }
+    this.changeHP(-other.damage);
+    // console.log(this.currentHP);
+    // gunがHP0になった場合・・アニメは置いといて、とりあえずactiveは切る（でないとオーバーキルになる）。
+    // if(this.currentHP === 0){ this.reset(); }
+    // そのあと残機ありなら残機減らして再スタート、なしならgameoverにconvertする。それは残機をplayFlowが
+    // 監視していて残機0を読み取ったらgameoverにconvertする。
     //if(other._type === 'enemyBullet'){ console.log('gun %d damaged!!', other.damage); }
     //else if(other._type === 'playerBullet'){ console.log('enemy %d damaged!!', other.damage); }
   }
+  check(){} // 事後処理は個別に用意する
 }
 
 class gun extends fireUnit{
@@ -835,6 +847,11 @@ class gun extends fireUnit{
       fill(70, 100, 100);
       rect(10, 40, this.currentHP, 20); // HPゲージ。
     }
+    // 弾の位置に応じた弾数表
+    fill(0);
+    for(let i = 0; i < this.magazine.length; i++){
+      if(!this.magazine[i].isActive){ rect(10 + 11 * i, 70, 10, 5); }
+    }
     pop();
   }
   // 残機ありの状態でやられた場合（currentHPが0になった場合）は、やられるときのアニメーションをrenderで
@@ -859,6 +876,9 @@ class gun extends fireUnit{
     this.currentHP = this.maxHP; // this.maxHPはリセットされずに増えていく感じ。
     // controlGunはセットしっぱなしでいい。
     this.inActivate();
+  }
+  check(){
+    // 準備中
   }
 }
 
@@ -894,6 +914,9 @@ class enemy extends fireUnit{
     this.magazine = [];
     this.stock = 0;
     this.setFlow(undefined); // このときnon-Activeになるので描画されなくなる
+  }
+  check(){
+    if(this.currentHP === 0){ this.reset(); } // やられたらリセット
   }
 }
 
@@ -962,7 +985,7 @@ class bullet extends actor{
   update(){
     if(!this.isActive){ return; } // ここはそのまま
     this.currentFlow.execute(this); // これだけ。すっきりした。
-    this.myCollider.update({x:this.pos.x, y:this.pos.y, w:this.w * 2, h:this.h * 2});
+    this.myCollider.update({x:this.pos.x - this.w, y:this.pos.y - this.h, w:this.w * 2, h:this.h * 2});
   }
   render(){
     if(!this.visible){ return; }
@@ -977,12 +1000,12 @@ class bullet extends actor{
     // bullet側なので当たったら消える仕組みを設けたい所。
     // ただ、当ててもダメージを与えられない場合にも消えて欲しいというふうになるかもしれないので、
     // ダメージを受けるかどうかのフラグが欲しいところ。でないとダメージを与えられない場合にすりぬけてしまうので。
-    if(!this.isActive){ return; }
-    if(!other.isActive){ return; }
-    this.setFlow(undefined); // 消滅させるだけ。
+    // this.setFlow(undefined); // 消滅させるだけ。
+    // 消滅はcheckで行うため、いまのところやることが無い
     // if(other._type === 'enemy'){ console.log('enemy %d damage!!', this.damage); }
     // else if(other._type === 'gun'){ console.log('gun %d damage!!', this.damage); }
   }
+  check(){ this.setFlow(undefined); }
 }
 
 // enemyの挙動は位置制御にする。速度持たせてもいいけど・・どうするかな。要相談。
@@ -1161,9 +1184,9 @@ class controlGun extends flow{
     if(_gun.pos.x >= width - _gun.w){ _gun.pos.x = width - _gun.w - 1; }
     if(_gun.pos.y <= _gun.h){ _gun.pos.y = _gun.h; }
     if(_gun.pos.y >= height - _gun.h){ _gun.pos.y = height - _gun.h - 1; }
-    if(keyIsDown(90)){
-      // Zボタン
-      _gun.fire();
+    if(keyFlag & 2){
+      // Zボタンで発射
+      _gun.fire(); flagReset();
     }
     // Qボタンで切り替え
     if(keyFlag & 1){
@@ -1254,7 +1277,7 @@ class selectFlow extends flow{
 class playFlow extends flow{
   constructor(stageNumber){
     super();
-    this._gun = new gun(100, 5); // 初期状態での弾の数と移動スピード
+    this._gun = new gun(50, 5); // 初期状態での弾の数と移動スピード
     // いずれはinitializeでパラメータを設定することになりそう。スピードとか大きさとか。
     //this._enemyGenerator = new enemyGenerator(20, 200); // 一度に出現する敵の数、合計の弾の数
     this._enemyGenerator = new enemyGenerator(); // initializeはsetStageで行う
@@ -1389,8 +1412,13 @@ class playFlow extends flow{
 
         if(hit) {
           collisionCount++;
-          //obj1.hit(obj2);
-          //obj2.hit(obj1);
+          if(obj1.isActive && obj2.isActive){
+            obj1.hit(obj2);
+            obj2.hit(obj1);
+            // 衝突処理が終了した後の事後処理（消すとかそういうの）
+            obj1.check();
+            obj2.check();
+          }
         }
       }
     }
@@ -1412,8 +1440,12 @@ class playFlow extends flow{
 
         if(hit) {
           collisionCount++; // ぶつかった回数
-          //obj.hit(cellObj);
-          //cellObj.hit(obj);
+          if(obj.isActive && cellObj.isActive){
+            obj.hit(cellObj);
+            cellObj.hit(obj);
+            obj.check();
+            cellObj.check();
+          }
         }
       }
     }
