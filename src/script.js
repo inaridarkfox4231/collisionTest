@@ -77,12 +77,16 @@ function draw(){
 function initialize(){
   const _titleFlow = new titleFlow();
   const _selectFlow = new selectFlow();
-  const _playFlow = new playFlow(1); // ステージをいくつか用意したりするかもしれないけど(引数がステージ番号)
+  const _playFlow = new playFlow(); // ステージをいくつか用意したりするかもしれないけど(引数がステージ番号)
   const _pauseFlow = new pauseFlow();
+  const _gameoverFlow = new gameoverFlow();
+  const _clearFlow = new clearFlow();
   _titleFlow.addFlow(_selectFlow);
   _selectFlow.addFlow(_titleFlow); // selectからはtitleとplayに行けるように
   _selectFlow.addFlow(_playFlow); // 0がtitleで1がplay.
   _playFlow.addFlow(_pauseFlow); // playからはpauseと、あとgameoverとclearにいけるけどまだ。
+  _playFlow.addFlow(_gameoverFlow);
+  _playFlow.addFlow(_clearFlow);
   _pauseFlow.addFlow(_playFlow);  // pauseからはtitleとplayに行ける
   _pauseFlow.addFlow(_titleFlow); // 0がplayで1がtitle.
   return _titleFlow;
@@ -1244,7 +1248,13 @@ class selectFlow extends flow{
   }
   convert(_entity){
     // if(this.nextStateIndex === 1){ return; } // playが制作中なので0しか機能しない
-    _entity.setFlow(this.convertList[this.nextStateIndex]);
+    if(this.nextStateIndex === 0){
+      _entity.setFlow(this.convertList[0]); // 0がtitleFLow.
+    }else{
+      _entity.setFlow(this.convertList[1]); // 1がplayFlow.
+      _entity.currentFlow.setStageNumber(this.nextStateIndex); // ステージ数の設定
+    }
+    // _entity.setFlow(this.convertList[this.nextStateIndex]);
     this.nextStateIndex = 0; // インデックスリセット
   }
   render(){
@@ -1277,14 +1287,14 @@ class selectFlow extends flow{
 // enemy関連は後回しにしよう。
 
 class playFlow extends flow{
-  constructor(stageNumber){
+  constructor(){
     super();
     this._gun = new gun(50, 5); // 初期状態での弾の数と移動スピード
     // いずれはinitializeでパラメータを設定することになりそう。スピードとか大きさとか。
     //this._enemyGenerator = new enemyGenerator(20, 200); // 一度に出現する敵の数、合計の弾の数
     this._enemyGenerator = new enemyGenerator(); // initializeはsetStageで行う
     this.initialState = PRE;
-    this.stageNumber = stageNumber; // 1なら1, 2なら2.
+    this.stageNumber = 0; // 1なら1, 2なら2.
     this.play_on = false; // ステージに来てinitializeしたのちtrueにする
     // selectからきたときはfalseなのでinitializeが発動してそのあとtrueになる
     // pauseからきたときはtrueになってるのでinitializeしないってなる。クリアした時など、pause以外で
@@ -1294,6 +1304,9 @@ class playFlow extends flow{
     // 衝突関連。毎回初期化する。
     this._qTree = new linearQuadTreeSpace(width, height, 3);
     this._detector = new collisionDetector();
+  }
+  setStageNumber(newNumber){
+    this.stageNumber = newNumber; // convertのときに呼び出す。
   }
   initialize(_entity){
     if(this.play_on){ return; }
@@ -1460,10 +1473,11 @@ class playFlow extends flow{
     return false;
   }
   convert(_entity){
-    console.log(_entity);
     // とりあえずpauseだけ、pauseからはtitleかplayに行ける感じで。titleに行く際にはすべてリセット。
     // gameoverからtitle, clearからもtitle.
     _entity.setFlow(this.convertList[this.nextStateIndex]);
+    if(this.nextStateIndex > 0){ this.reset(); }
+    this.nextStateIndex = 0;
     // リセットはしなくていい
     // pauseに行くとき以外はthis.play_on = falseと書く。（gameover, clear）
   }
@@ -1495,6 +1509,8 @@ class playFlow extends flow{
       // 追加されて行って追加されたガンは前のステージでも使えるっていうふうにしようねっていう話。
       this._gun.setPos(60, 240);
       this._gun.setParameter(15, 15, 50); // gunの大きさ、HPを設定
+
+      // 各種shotに関してはグローバルで書くか、classを作ってそれにいろいろ書くとか。
 
       // とりあえずめんどくさいので
       // 直線ショット。色は赤、ダメージは5.
@@ -1547,6 +1563,8 @@ class playFlow extends flow{
       for(let i = 0; i < 9; i++){ dataSet.push({enemyId:i % 3, flowId:i}); }
       this._enemyGenerator.setFlow(new generateFlow_line(posArray, span, dx, dy, n, dataSet));
       this._enemyGenerator.activate();
+    }else if(this.stageNumber === 2){
+      // ステージ2.
     }
   }
   static createShot(flowSet, cost, hue, wait, damage){
@@ -1625,24 +1643,47 @@ class gameoverFlow extends flow{
   }
   execute(_entity){
     // Zボタン押したらconvertしてタイトルへ。リセットは終わってる。
+    if(keyFlag & 2){
+      this.convert(_entity); flagReset();
+    }
   }
   render(_entity){
     // 中央に黒い四角とメッセージを表示し、Zボタンを押すとタイトルに戻るようにする。
     push();
+    fill(0);
+    rect(160, 120, 320, 240);
+    fill(100);
+    textSize(30);
+    text('GAME OVER...', 180, 180)
+    textSize(20);
+    text('PRESS Z BUTTON', 210, 210);
     pop();
   }
 }
 
+// クリア時は新しいshotの追加とか最大HP増やしたり弾数増やしたりいろいろやることがあるので・・
+// それはおいおい書いていくと。
 class clearFlow extends flow{
   constructor(){
     super();
     this.initialState = ACT;
   }
   execute(_entity){
-    // ボタン押したらconvertしてタイトルへ。リセットは終わってる。
+    // Zボタン押したらconvertしてタイトルへ。リセットは終わってる。
+    if(keyFlag & 2){
+      this.convert(_entity); flagReset();
+    }
   }
   render(_entity){
-
+    push();
+    fill(0);
+    rect(160, 120, 320, 240);
+    fill(100);
+    textSize(30);
+    text('STAGE CLEAR!!', 180, 180)
+    textSize(20);
+    text('PRESS Z BUTTON', 210, 210);
+    pop();
   }
 }
 // ----------------------------------------------------------------------------------------------- //
