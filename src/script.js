@@ -760,6 +760,15 @@ class fireUnit extends actor{
   }
   update(){
     if(!this.isActive){ return; }
+    // これ以下の部分はやられるアニメの時はスルーにする。
+    // で、その代わりにthis.animId === 2かつthis.animCount === 0ならばset(undefined)する。
+    // ただ残機数を決めておく、敵の場合とか、1がデフォルト。gunの場合は2とか3とか増える感じ。
+    // 残機数はcheckで減らす。0の場合、復活しないので敵ならやられるけどgunの場合は復活する。
+    // 復活はrevive()を設けて（デフォルトは何もしない）、まあ、色々やる。
+    if(this.currentHP === 0){
+      if(this.animId === 2 && this.animCount === 0){ this.setFlow(undefined); }
+      return;
+    }
     this.currentFlow.execute(this); // gunの場合はここで設定して・・
     this.myCollider.update({x:this.pos.x - this.w, y:this.pos.y - this.h, w:this.w * 2, h:this.h * 2});
     // 直後に発射。
@@ -899,15 +908,20 @@ class gun extends fireUnit{
     //this.currentMuzzleIndex = 0;
     this.cursor = 0;
     this.wait = 0;
-    this.bodyHue = 0;
     this.magazine.forEach(function(b){ b.setFlow(undefined); }) // magazine...enemyでは空にする
     // controlGunはセットしっぱなしでいい。
-    this.inActivate();
+    //this.inActivate();
+    // resetするのはgameoverから行く場合とclear, pauseから行く場合があって、
+    // gameoverから行く場合はupdateの中でsetFlow(undefined)する感じ。それ以外は追加する。
   }
   check(){
     // 準備中
     if(this.currentHP > 0){
       this.animId = 1;
+      this.animCount = 100;
+    }else{
+      // やられたら・・
+      this.animId = 2;
       this.animCount = 100;
     }
   }
@@ -971,20 +985,21 @@ class enemy extends fireUnit{
     this.currentMuzzleIndex = 0;
     this.cursor = 0;
     this.wait = 0;
-    this.bodyHue = 0;
     for(let i = 0; i < this.magazine.length; i++){
       this.magazine[i].setFlow(undefined); // とりあえず消滅してもらう。このとき親がいないとエラーになるので先に書く。
       this.magazine[i].setParent(undefined); // 親の履歴を消す（再利用化）
     }
     this.magazine = [];
     this.stock = 0;
-    this.setFlow(undefined); // このときnon-Activeになるので描画されなくなる
+    //this.setFlow(undefined); // このときnon-Activeになるので描画されなくなる
   }
   check(){
     if(this.currentHP > 0){
       this.animId = 1;
       this.animCount = 100;
     }else{
+      this.animId = 2;
+      this.animCount = 100;
       this.reset(); // やられたらリセット
     }
   }
@@ -1072,8 +1087,6 @@ class bullet extends actor{
     // ダメージを受けるかどうかのフラグが欲しいところ。でないとダメージを与えられない場合にすりぬけてしまうので。
     // this.setFlow(undefined); // 消滅させるだけ。
     // 消滅はcheckで行うため、いまのところやることが無い
-    // if(other._type === 'enemy'){ console.log('enemy %d damage!!', this.damage); }
-    // else if(other._type === 'gun'){ console.log('gun %d damage!!', this.damage); }
   }
   check(){ this.setFlow(undefined); }
 }
@@ -1385,8 +1398,8 @@ class playFlow extends flow{
     }
     // とりあえずupdateくらいで
     this._gun.update();
-    // やられる場合はここで離脱
-    if(this._gun.currentHP === 0){
+    // やられる場合はここで離脱. やられるときは上記のupdate内でisActiveが消える仕組み。
+    if(!this._gun.isActive){
       this.nextStateIndex = 1;
       this.convert(_entity); flagReset(); return;
     }
@@ -1405,27 +1418,34 @@ class playFlow extends flow{
     // 登録するのはgun, gunの持ってるbullet, Activeなenemy, Activeなenemyの持ってるbullet.
     // fireUnitにもvisibleを設定しないといけない。
 
+    let collisionOccur = false;
     // animCountが正のときに当たり判定が生じないように修正。
     if(this._gun.isActive && this._gun.animCount === 0){
       this._qTree.addActor(this._gun);
+      collisionOccur = true;
     }
     this._gun.magazine.forEach((b) => {
       if(b.visible){
         this._qTree.addActor(b);
+        collisionOccur = true;
       }
     });
     // enemyGeneratorのbulletSetってやった方が節約になりそうな気がする
     this._enemyGenerator.enemySet.forEach((e) => {
       if(e.isActive && e.animCount === 0){
         this._qTree.addActor(e);
+        collisionOccur = true;
       }
     });
     this._enemyGenerator.bulletSet.forEach((b) => {
       if(b.visible){
         this._qTree.addActor(b);
+        collisionOccur = true;
       }
     });
-    this._hitTest(); // 判定する。_hittestの中でどの組み合わせなら判定するかとか決めるつもり。
+    if(collisionOccur){
+      this._hitTest(); // 判定する。_hittestの中でどの組み合わせなら判定するかとか決めるつもり。
+    }
 
     // Pボタンでポーズ
     if(keyFlag & 64){
@@ -1556,7 +1576,7 @@ class playFlow extends flow{
     // とりあえずpauseだけ、pauseからはtitleかplayに行ける感じで。titleに行く際にはすべてリセット。
     // gameoverからtitle, clearからもtitle.
     _entity.setFlow(this.convertList[this.nextStateIndex]);
-    if(this.nextStateIndex > 0){ this.reset(); }
+    if(this.nextStateIndex > 0){ this.reset(); } // ゲームオーバーの場合はgeneratorだけリセットする
     this.nextStateIndex = 0;
     // リセットはしなくていい
     // pauseに行くとき以外はthis.play_on = falseと書く。（gameover, clear）
@@ -1592,11 +1612,6 @@ class playFlow extends flow{
 
       // 各種shotはgunのメソッドで追加するようにした（ステージクリアで増える）。
 
-      // さて次はenemyの実装。動きは言ったように位置ベースでやる。円軌道とか色々。振動とか。
-      // 動かずに攻撃しまくるのもありかな・・攻撃パターンも考えなきゃだし。攻撃の際の、
-      // bulletの消費の仕方とかもろもろは同じように実装したいけどどうなるか分かんないな。
-      // 一定フレームごとに自動的に、って流れになりそう。なんせ自動ですべて制御
-
       this._gun.setFlow(new controlGun());
       this._gun.activate();
 
@@ -1625,7 +1640,10 @@ class playFlow extends flow{
     return {cost:cost, hue:hue, initialFlow:flowSet[0], wait:wait, damage:damage};
   }
   reset(){
-    this._gun.reset(); // gunの所に書く
+    if(this.nextStateIndex > 1){
+      this._gun.reset();
+      this._gun.setFlow(undefined);
+    }
     this._enemyGenerator.reset(); // enemyGeneratorに書く
     this.play_on = false;
   }
