@@ -89,6 +89,8 @@ function initialize(){
   _playFlow.addFlow(_clearFlow);
   _pauseFlow.addFlow(_playFlow);  // pauseからはtitleとplayに行ける
   _pauseFlow.addFlow(_titleFlow); // 0がplayで1がtitle.
+  _gameoverFlow.addFlow(_titleFlow);
+  _clearFlow.addFlow(_titleFlow);
   return _titleFlow;
 }
 
@@ -106,6 +108,7 @@ function keyTyped(){
   else if(key === 'a'){ keyFlag |= 16; } // Aは左に使う（かも）
   else if(key === 'd'){ keyFlag |= 32; } // Dは右に使う（かも）
   else if(key === 'p'){ keyFlag |= 64; } // Pはpauseに使う
+  else if(key === 'r'){ keyFlag |= 128 } // re: gameoverやclearからの離脱に使う。
 }
 function flagReset(){
   clickPosX = -1;
@@ -1360,7 +1363,22 @@ class playFlow extends flow{
     if(keyFlag & 64){
       this.nextStateIndex = 0;
       this.convert(_entity); flagReset();
+    }else if(this._gun.currentHP === 0){ // enemyGeneratorが終了する前に残機ゼロになったらgameover.
+      this.nextStateIndex = 1;
+      this.convert(_entity); flagReset();
+    }else if(!this._enemyGenerator.isActive){ // enemyGeneratorが終了したらclear.
+      this.nextStateIndex = 2;
+      this.convert(_entity);
     }
+    // だめだ。ここに書いちゃうとHPゲージが0にならないし残機もそのまま残っちゃうよ。
+    // controlGunにkilledみたいなのつなげてそっちに移行してもらう。
+    // それが終わったら自動的にnon-Activeになる。non-Activeを以てgameoverの条件にするとか。
+    // killedにcontrolGunとundefinedをつなげて残機がある場合はcontrolGunに、無い場合はundefinedに。
+    // アニメーションもそのうち用意するけど・・
+    // 敵の方はそのまま消える仕様でいいと。で、今の状態でも、そうしてワンクッションかませれば
+    // ちゃんとHP0が描画されてから次のstateに移行してくれる。
+    // killedStateのときはtreeに入れないようにしたい。
+    // isActiveかどうかで判定してるところも書き換えないといけないし大変だ・・killedでもactiveだし。
   }
   // 当たり判定。
   _hitTest(currentIndex = 0, objList = []) {
@@ -1642,12 +1660,12 @@ class gameoverFlow extends flow{
     this.initialState = ACT;
   }
   execute(_entity){
-    // Zボタン押したらconvertしてタイトルへ。リセットは終わってる。
-    if(keyFlag & 2){
+    // Rボタン押したらconvertしてタイトルへ。リセットは終わってる。
+    if(keyFlag & 128){
       this.convert(_entity); flagReset();
     }
   }
-  render(_entity){
+  render(){
     // 中央に黒い四角とメッセージを表示し、Zボタンを押すとタイトルに戻るようにする。
     push();
     fill(0);
@@ -1656,7 +1674,7 @@ class gameoverFlow extends flow{
     textSize(30);
     text('GAME OVER...', 180, 180)
     textSize(20);
-    text('PRESS Z BUTTON', 210, 210);
+    text('PRESS R BUTTON', 210, 210);
     pop();
   }
 }
@@ -1669,12 +1687,12 @@ class clearFlow extends flow{
     this.initialState = ACT;
   }
   execute(_entity){
-    // Zボタン押したらconvertしてタイトルへ。リセットは終わってる。
-    if(keyFlag & 2){
+    // Rボタン押したらconvertしてタイトルへ。リセットは終わってる。
+    if(keyFlag & 128){
       this.convert(_entity); flagReset();
     }
   }
-  render(_entity){
+  render(){
     push();
     fill(0);
     rect(160, 120, 320, 240);
@@ -1682,7 +1700,7 @@ class clearFlow extends flow{
     textSize(30);
     text('STAGE CLEAR!!', 180, 180)
     textSize(20);
-    text('PRESS Z BUTTON', 210, 210);
+    text('PRESS R BUTTON', 210, 210);
     pop();
   }
 }
