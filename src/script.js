@@ -811,7 +811,16 @@ class fireUnit extends actor{
     //if(other._type === 'enemyBullet'){ console.log('gun %d damaged!!', other.damage); }
     //else if(other._type === 'playerBullet'){ console.log('enemy %d damaged!!', other.damage); }
   }
-  check(){} // 事後処理は個別に用意する
+  check(){
+    if(this.currentHP > 0){
+      this.animId = 1;
+      this.animCount = 100;
+    }else{
+      this.animId = 2;
+      this.animCount = 100;
+      this.reset(); // やられたらリセット
+    }
+  }
   // id:0~2, count:99~0.
   getAlpha(){
     if(this.animCount === 0){ return 100; }
@@ -849,6 +858,7 @@ class gun extends fireUnit{
     this.stock = this.magazine.length;
     this.currentHP = this.maxHP;
     this.currentMuzzleIndex = 0;
+    this.bodyHue = 0;
   }
   revolve(){
     this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
@@ -913,17 +923,6 @@ class gun extends fireUnit{
     //this.inActivate();
     // resetするのはgameoverから行く場合とclear, pauseから行く場合があって、
     // gameoverから行く場合はupdateの中でsetFlow(undefined)する感じ。それ以外は追加する。
-  }
-  check(){
-    // 準備中
-    if(this.currentHP > 0){
-      this.animId = 1;
-      this.animCount = 100;
-    }else{
-      // やられたら・・
-      this.animId = 2;
-      this.animCount = 100;
-    }
   }
   // cost: 一度に消費する弾数
   // hue: 弾の色
@@ -992,16 +991,6 @@ class enemy extends fireUnit{
     this.magazine = [];
     this.stock = 0;
     //this.setFlow(undefined); // このときnon-Activeになるので描画されなくなる
-  }
-  check(){
-    if(this.currentHP > 0){
-      this.animId = 1;
-      this.animCount = 100;
-    }else{
-      this.animId = 2;
-      this.animCount = 100;
-      this.reset(); // やられたらリセット
-    }
   }
 }
 
