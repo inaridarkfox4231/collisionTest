@@ -706,6 +706,9 @@ class fireUnit extends actor{
     this.maxHP = maxHP;
     this.currentHP = maxHP;
   }
+  changeHP(value){
+    this.currentHP = constrain(this.currentHP + value, 0, this.maxHP);
+  }
   registShot(shot){
     this.muzzle.push(shot); // shotは辞書で、
   }
@@ -766,8 +769,23 @@ class fireUnit extends actor{
   // enemyGeneratorをresetするときにそこに入ってるenemyBulletの親をまとめてundefinedにする仕様
   hit(other){
     // ダメージを受ける仕様を書きたいね
-    if(other._type === 'enemyBullet'){ console.log('gun %d damaged!!', other.damage); }
-    else if(other._type === 'playerBullet'){ console.log('enemy %d damaged!!', other.damage); }
+    // まずisActiveでないときは何も起きないってことで。
+    // activeでもotherが消えてる時は何も起きないよね。
+    // 両方activeならbulletのダメージとこっちのHPから挙動を決める。
+    if(!this.isActive){ return; }
+    if(!other.isActive){ return; }
+    if(this._type === 'enemy'){
+      this.changeHP(-other.damage);
+      if(this.currentHP === 0){ this.reset(); } // HPが0になったらリセットしてactiveもなくす
+    }else if(this._type === 'gun'){
+      this.changeHP(-other.damage);
+      // gunがHP0になった場合・・アニメは置いといて、とりあえずactiveは切る（でないとオーバーキルになる）。
+      // if(this.currentHP === 0){ this.reset(); }
+      // そのあと残機ありなら残機減らして再スタート、なしならgameoverにconvertする。それは残機をplayFlowが
+      // 監視していて残機0を読み取ったらgameoverにconvertする。
+    }
+    //if(other._type === 'enemyBullet'){ console.log('gun %d damaged!!', other.damage); }
+    //else if(other._type === 'playerBullet'){ console.log('enemy %d damaged!!', other.damage); }
   }
 }
 
@@ -801,9 +819,9 @@ class gun extends fireUnit{
     push();
     noStroke();
     fill(30);
-    // 本体の描画
+    // 本体の描画(やられる時のアニメはここでやる、あと出現時とダメージ後のブリンクを予定してる)
     rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
-    fill(this.bodyHue, 100, 100);
+    fill(this.bodyHue, 100, 100); // 透明度を指定してアニメを行う
     rect(this.pos.x - this.w + 5, this.pos.y - this.h + 5, 2 * (this.w - 5), 2 * (this.h - 5));
     // 弾数ゲージの描画
     if(this.stock > 0){
@@ -813,12 +831,22 @@ class gun extends fireUnit{
     // HPゲージの描画
     fill(70);
     rect(10, 40, this.maxHP, 20);
-    fill(70, 100, 100);
-    rect(10, 40, this.currentHP, 20); // HPゲージ。
+    if(this.currentHP > 0){
+      fill(70, 100, 100);
+      rect(10, 40, this.currentHP, 20); // HPゲージ。
+    }
     pop();
   }
+  // 残機ありの状態でやられた場合（currentHPが0になった場合）は、やられるときのアニメーションをrenderで
+  // やったあと、残機をひとつ減らして、resetの内容のうちcursor = 0, wait = 0, bodyHue = 0,
+  // magazine各々undefined, stockもリセット、・・・つまりmuzzle関連とsetFlow(undefined)以外すべて
+  // 実行したうえで・・ああ、全部でいいのか。な？全部でいい。
+  // やられるアニメ→リセット→controlGunはセットしっぱなしでいい気がする。
   reset(){
     // やられたときの処理とは別
+    // muzzleに関しては、ステージ内で新しいの手に入るようにするかそれとも履歴が残っていくようにするか考え中
+    // いいや、履歴残るようにしよう。最大HPも最大弾数もステージクリアごとに残る仕様で。
+    // クッキーとか使えないかな・・何だっけ、ブラウザに記録するあれ。
     this.muzzle = [];
     this.currentMuzzleIndex = 0;
     this.cursor = 0;
@@ -827,6 +855,10 @@ class gun extends fireUnit{
     this.magazine.forEach(function(b){ b.setFlow(undefined); }) // magazine...enemyでは空にする
     // 親はそのまま
     this.stock = this.magazine.length;
+    // HPとか
+    this.currentHP = this.maxHP; // this.maxHPはリセットされずに増えていく感じ。
+    // controlGunはセットしっぱなしでいい。
+    this.inActivate();
   }
 }
 
@@ -945,8 +977,11 @@ class bullet extends actor{
     // bullet側なので当たったら消える仕組みを設けたい所。
     // ただ、当ててもダメージを与えられない場合にも消えて欲しいというふうになるかもしれないので、
     // ダメージを受けるかどうかのフラグが欲しいところ。でないとダメージを与えられない場合にすりぬけてしまうので。
-    if(other._type === 'enemy'){ console.log('enemy %d damage!!', this.damage); }
-    else if(other._type === 'gun'){ console.log('gun %d damage!!', this.damage); }
+    if(!this.isActive){ return; }
+    if(!other.isActive){ return; }
+    this.setFlow(undefined); // 消滅させるだけ。
+    // if(other._type === 'enemy'){ console.log('enemy %d damage!!', this.damage); }
+    // else if(other._type === 'gun'){ console.log('gun %d damage!!', this.damage); }
   }
 }
 
@@ -1407,7 +1442,10 @@ class playFlow extends flow{
 
     background(this.backgroundColor);
     //image(bgs[0], 0, 0);
-    this._gun.render();
+    this._gun.render(); // gunは常にrenderする。HPが0でもアニメに必要・・そこらへんはあっちに書くよ。
+    // 出現するときとか・・基本アニメ中はダメージ受けないからそこらへんも。何かひとつ数を用意して
+    // それが0になっていく過程で透明度を指定しつつアニメ、で、その間はその値が正だからダメージ受けない、
+    // そういうのを考えてる。敵についても同じものを想定してる。
     this._enemyGenerator.render();
   }
   setStage(){
