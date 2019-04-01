@@ -822,6 +822,24 @@ class gun extends fireUnit{
       this.magazine.push(new bullet('playerBullet', this));
     }
     this.stock = bulletVolume; // enemyの場合はsettingの際にこれを設定する感じ。
+    // ここには0だけ書くようにして順次グレードアップ、みたいな。
+    this.registShot_0();
+    this.registShot_1();
+    this.registShot_2();
+  }
+  setParameter(w, h, maxHP){
+    // パラメータこっちで。HPとかも・・？
+    this.w = w;
+    this.h = h;
+    this.maxHP = maxHP;
+    this.currentHP = maxHP;
+    // gunなら位置設定、enemyなら出現時にanim関連のパラメータを決める
+    this.animCount = 100;
+    this.animId = 0;
+    // stockとcurrentHPはここで決める。resetには書かない方向で。
+    this.stock = this.magazine.length;
+    this.currentHP = this.maxHP;
+    this.currentMuzzleIndex = 0;
   }
   revolve(){
     this.currentMuzzleIndex = (this.currentMuzzleIndex + 1) % this.muzzle.length;
@@ -877,16 +895,12 @@ class gun extends fireUnit{
     // muzzleに関しては、ステージ内で新しいの手に入るようにするかそれとも履歴が残っていくようにするか考え中
     // いいや、履歴残るようにしよう。最大HPも最大弾数もステージクリアごとに残る仕様で。
     // クッキーとか使えないかな・・何だっけ、ブラウザに記録するあれ。
-    this.muzzle = [];
-    this.currentMuzzleIndex = 0;
+    //this.muzzle = [];
+    //this.currentMuzzleIndex = 0;
     this.cursor = 0;
     this.wait = 0;
     this.bodyHue = 0;
     this.magazine.forEach(function(b){ b.setFlow(undefined); }) // magazine...enemyでは空にする
-    // 親はそのまま
-    this.stock = this.magazine.length;
-    // HPとか
-    this.currentHP = this.maxHP; // this.maxHPはリセットされずに増えていく感じ。
     // controlGunはセットしっぱなしでいい。
     this.inActivate();
   }
@@ -896,6 +910,40 @@ class gun extends fireUnit{
       this.animId = 1;
       this.animCount = 100;
     }
+  }
+  // cost: 一度に消費する弾数
+  // hue: 弾の色
+  // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
+  // wait: 撃ってから次に撃てるようになるまでのインターバル
+  // damage: 弾がgunに与えるダメージ
+  // maxSpeed: xとかy方向のスピードの最大値、たとえばx方向は5まで、とか。
+  registShot_0(){
+    // 直線弾
+    let f0 = new setVelocityHub(3, 0);
+    let f1 = new matrixArrow(1.05, 0, 0, 1.05, 240);
+    f0.addFlow(f1);
+    let shot_0 = {cost:1, hue:0, initialFlow:f0, wait:10, damage:5};
+    this.registShot(shot_0);
+  }
+  registShot_1(){
+    // 3WAYガン
+    let f0 = new n_waySimpleHub(10, 15, 3);
+    let f1 = new matrixArrow(1.01, 0, 0, 0.8, 420);
+    f0.addFlow(f1);
+    let shot_1 = {cost:3, hue:10, initialFlow:f0, wait:25, damage:3};
+    this.registShot(shot_1);
+  }
+  registShot_2(){
+    // 散開弾
+    let f0 = new setVelocityHub(10, 0);
+    let f1 = new matrixArrow(0.98, 0, 0, 0.98, 30)
+    let f2 = new limitedCircularDelayHub(5, 20, 4, 4, 0, PI / 10);
+    let f3 = new matrixArrow(1.01, 0, 0, 1.01, 480)
+    f0.addFlow(f1);
+    f1.addFlow(f2);
+    f2.addFlow(f3);
+    let shot_2 = {cost:20, hue:17, initialFlow:f0, wait:40, damage:1};
+    this.registShot(shot_2);
   }
 }
 
@@ -1337,12 +1385,13 @@ class playFlow extends flow{
     }
     // とりあえずupdateくらいで
     this._gun.update();
-    if(this._gun.currentHP === 0){ // enemyGeneratorが終了する前に残機ゼロになったらgameover.
+    // やられる場合はここで離脱
+    if(this._gun.currentHP === 0){
       this.nextStateIndex = 1;
       this.convert(_entity); flagReset(); return;
     }
 
-    this._enemyGenerator.update(); // updateされない？？
+    this._enemyGenerator.update();
     // クリアする場合はここで離脱
     if(!this._enemyGenerator.isActive){
       this.nextStateIndex = 2;
@@ -1376,14 +1425,6 @@ class playFlow extends flow{
         this._qTree.addActor(b);
       }
     });
-/*
-    this.actors.forEach((a) => {
-      if(a.visible){
-        this._qTree.addActor(a); // 登録
-        collisionOccur = true;
-      } // visibleなものしか登録しない
-    });
-*/
     this._hitTest(); // 判定する。_hittestの中でどの組み合わせなら判定するかとか決めるつもり。
 
     // Pボタンでポーズ
@@ -1549,46 +1590,15 @@ class playFlow extends flow{
       this._gun.setPos(60, 240);
       this._gun.setParameter(15, 15, 50); // gunの大きさ、HPを設定
 
-      // 各種shotに関してはグローバルで書くか、classを作ってそれにいろいろ書くとか。
+      // 各種shotはgunのメソッドで追加するようにした（ステージクリアで増える）。
 
-      // とりあえずめんどくさいので
-      // 直線ショット。色は赤、ダメージは5.
-      let flow_0_0 = new setVelocityHub(3, 0);
-      let flow_0_1 = new matrixArrow(1.05, 0, 0, 1.05, 240);
-      let shot_0 = playFlow.createShot([flow_0_0, flow_0_1], 1, 0, 10, 5);
-      this._gun.registShot(shot_0);
-
-      //let flow_1_0 = new n_wayHub(10, 0, PI / 4, 1);
-      // 3WAYGun. 色はオレンジ、ダメージは3.
-      let flow_1_0 = new n_waySimpleHub(10, 15, 3);
-      let flow_1_1 = new matrixArrow(1.01, 0, 0, 0.8, 420);
-      let shot_1 = playFlow.createShot([flow_1_0, flow_1_1], 3, 10, 25, 3);
-      this._gun.registShot(shot_1);
-
-      // 散開弾。色は黄色、ダメージは1.
-      let flow_2_0 = new setVelocityHub(10, 0);
-      let flow_2_1 = new matrixArrow(0.98, 0, 0, 0.98, 30)
-      let flow_2_2 = new limitedCircularDelayHub(5, 20, 4, 4, 0, PI / 10);
-      let flow_2_3 = new matrixArrow(1.01, 0, 0, 1.01, 480)
-      let shot_2 = playFlow.createShot([flow_2_0, flow_2_1, flow_2_2, flow_2_3], 20, 17, 40, 1);
-      // まとめてflow用意してそれらをconnectしてshotにするまでをstaticかなんかでメソッドにするといいかもね。
-      this._gun.registShot(shot_2);
-
-      // もちろんいきなりこんないろいろ使えるのではなくて徐々に増やしていくんだけどとりあえず。
       // さて次はenemyの実装。動きは言ったように位置ベースでやる。円軌道とか色々。振動とか。
       // 動かずに攻撃しまくるのもありかな・・攻撃パターンも考えなきゃだし。攻撃の際の、
       // bulletの消費の仕方とかもろもろは同じように実装したいけどどうなるか分かんないな。
       // 一定フレームごとに自動的に、って流れになりそう。なんせ自動ですべて制御
-      // おやすみなさい
 
       this._gun.setFlow(new controlGun());
       this._gun.activate();
-      // cost: 一度に消費する弾数
-      // hue: 弾の色
-      // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
-      // wait: 撃ってから次に撃てるようになるまでのインターバル
-      // damage: 弾がgunに与えるダメージ
-      // maxSpeed: xとかy方向のスピードの最大値、たとえばx方向は5まで、とか。
 
       // enemyGeneratorの準備
       this._enemyGenerator.initialize(20, 200);
