@@ -177,12 +177,17 @@ class setVelocityHub extends flow{
 
 // (ox, oy)から自分に向けたベクトルが速度になる感じ
 class orientingHub extends flow{
-  constructor(ox, oy, speed){
+  constructor(speed){
     super();
-    this.ox = ox;
-    this.oy = oy;
+    this.ox = 0;
+    this.oy = 0;
     this.speed = speed;
     this.initialState = ACT;
+  }
+  setOrigin(ox, oy){
+    // 原点を定める、この処理はgenerateFlowでやるんだろうね（
+    this.ox = ox;
+    this.oy = oy;
   }
   execute(_bullet){
     // (ox, oy)から_bulletのposへ向かうベクトルを正規化する。
@@ -1015,6 +1020,7 @@ class enemy extends fireUnit{
 // enemyの設定
 function createEnemy(id, _enemy){
   if(id < 3){ createSimpleEnemy(id, _enemy); }
+  else if(id < 4){ createOrientedEnemy(id - 3, _enemy); }
   // ここに追加していく
   _enemy.visible = true; // 生成するときにtrueにしてやられたらfalseに戻す
 }
@@ -1034,6 +1040,17 @@ function createSimpleEnemy(id, _enemy){
   _enemy.bodyHue = id * 5; // 5, 10, 15.
 }
 
+function createOrientedEnemy(id, _enemy){
+  // id === 0のとき20x20. HPは40.
+  _enemy.setParameter(10, 10, 40);
+  _enemy.stock = 50;
+  let f_0 = new orientingHub(4);
+  let f_1 = new matrixArrow(1, 0, 0, 1, 200);
+  f_0.addFlow(f_1);
+  _enemy.muzzle.push({cost:1, hue:70, initialFlow:f_0, wait:10, damage:2});
+  _enemy.bodyHue = 70;
+}
+
 // あ、そうか、スタート位置がposだっけ。だから、一定の位置・・んー。
 class bullet extends actor{
   constructor(type, parent = undefined){
@@ -1041,7 +1058,7 @@ class bullet extends actor{
     this._type = type; // playerBulletかenemyBulletか
     this.w = 5;  // 幅の半分を設定したほうが都合がいい。
     this.h = 5;
-    this.parent = parent; // bulletの所属先。generatorかgunかって話。
+    this.parent = parent; // bulletの所属先。enemyかgunかって話。
     this.pos = createVector();
     this.velocity = createVector();
     this.timer = new counter();
@@ -1245,6 +1262,48 @@ class generateFlow_line extends flow{
   }
 }
 
+// allKillパターン、全員倒すと終了のテンプレート。
+class generateFlow_allKill extends flow{
+  constructor(patternId){
+    super();
+    // ここでやること: enemySetのコピーを入れる配列を初期化（クリア条件を作るのに使う）
+    this.patternId = patternId;
+    this.enemySet = [];
+    this.initialState = PRE;
+  }
+  initialize(_generator){
+    // ここでやること: enemySetに_generatorからのコピーを入れる。
+    // 次に、enemyの情報を入力する（グローバルから）。
+    // 最後に、stockの情報を元に弾丸をチャージしてからactivateする。
+    if(this.patternId === 0){
+      this.enemySet.push(_generator.enemySet[0]); // とりあえず1匹
+      let _enemy = this.enemySet[0];
+      createEnemy(3, _enemy);
+      _generator.chargeBullet(_enemy);
+      let f_0 = new constantFlow(createVector(500, 100), createVector(500, 380), 280);
+      let f_1 = new constantFlow(createVector(500, 380), createVector(500, 100), 280);
+      f_0.addFlow(f_1);
+      f_1.addFlow(f_0);
+      _enemy.setFlow(f_0);
+      _enemy.muzzle[0]['initialFlow'].setOrigin(600, 240);
+      _enemy.activate();
+    }
+  }
+  execute(_generator){
+    // ここでやること: まずはinitialize.
+    // 次から次へと敵が出てきて一定数倒すと終了とかそういうのは別のflowを作りましょう。
+    if(_generator.state === PRE){
+      this.initialize(_generator);
+      _generator.setState(ACT);
+    }
+    let flag = true;
+    for(let i = 0; i < this.enemySet.length; i++){
+      if(this.enemySet[i].isActive){ flag = false; break; }
+    }
+    if(flag){ this.convert(_generator); } // 全員倒したらコンバート
+  }
+}
+
 // ちょっとまって
 // バリエーションは限られているんだよね、だからenemyのstaticでenemyのバリエーションを用意して、
 // 横幅、縦幅、色、まだだけどHP, 攻撃の威力などが既にテンプレとして与えられてると。
@@ -1317,7 +1376,7 @@ class selectFlow extends flow{
   constructor(){
     super();
     this.initialState = ACT;
-    this.limit = 2;
+    this.limit = 3;
     this.nextStateIndex = 0;
   }
   execute(_entity){
@@ -1351,6 +1410,8 @@ class selectFlow extends flow{
     rect(140, 100, 80, 30);
     fill(10, 100, 100);
     rect(140, 140, 80, 30);
+    fill(20, 100, 100);
+    rect(140, 180, 80, 30);
   }
 }
 
@@ -1634,7 +1695,7 @@ class playFlow extends flow{
       this._enemyGenerator.activate();
     }else if(this.stageNumber === 2){
       // ステージ2. ふぅ・・・・・・・ようやく他のステージを作る余裕が出来た・・・
-      this.backgroundColor(70, 30, 100);
+      this.backgroundColor = color(70, 30, 100);
       // gun関連のメソッドは外側に書くべきでしょうね。
       // gunの大きさ、HPを設定
       this._gun.setPos(60, 240);
@@ -1642,6 +1703,9 @@ class playFlow extends flow{
       // 各種shotはgunのメソッドで追加するようにした（ステージクリアで増える）。
       this._gun.setFlow(new controlGun());
       this._gun.activate();
+      this._enemyGenerator.initialize(6, 300);
+      this._enemyGenerator.setFlow(new generateFlow_allKill(0));
+      this._enemyGenerator.activate();
     }
   }
   reset(){
