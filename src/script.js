@@ -693,14 +693,18 @@ class fireUnit extends actor{
     this.stock = 0; // bulletVolumeはenemyでは可変。
     this.bodyHue = 0;
     this.myCollider = new rectangleCollider(0, 0, this.w * 2, this.h * 2);
+    this.maxHP = 0; // 最大HP
+    this.currentHP = 0; // 現HP
   }
   setPos(x, y){
     this.pos.set(x, y);
   }
-  setParameter(w, h){
+  setParameter(w, h, maxHP){
     // パラメータこっちで。HPとかも・・？
     this.w = w;
     this.h = h;
+    this.maxHP = maxHP;
+    this.currentHP = maxHP;
   }
   registShot(shot){
     this.muzzle.push(shot); // shotは辞書で、
@@ -797,25 +801,41 @@ class gun extends fireUnit{
     push();
     noStroke();
     fill(30);
+    // 本体の描画
     rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
     fill(this.bodyHue, 100, 100);
     rect(this.pos.x - this.w + 5, this.pos.y - this.h + 5, 2 * (this.w - 5), 2 * (this.h - 5));
+    // 弾数ゲージの描画
     if(this.stock > 0){
-      rect(10, 10, this.stock, 20); // 弾数を表すゲージ表示
+      fill(5, 100, 100);
+      rect(10, 10, this.stock, 20);
     }
+    // HPゲージの描画
+    fill(70);
+    rect(10, 40, this.maxHP, 20);
+    fill(70, 100, 100);
+    rect(10, 40, this.currentHP, 20); // HPゲージ。
     pop();
   }
   reset(){
+    // やられたときの処理とは別
     this.muzzle = [];
     this.currentMuzzleIndex = 0;
     this.cursor = 0;
     this.wait = 0;
     this.bodyHue = 0;
     this.magazine.forEach(function(b){ b.setFlow(undefined); }) // magazine...enemyでは空にする
+    // 親はそのまま
     this.stock = this.magazine.length;
   }
 }
 
+// enemyがやられる・・画面外に出ていった場合もやられる判定としたい。
+// HPが0になった時に呼び出されたりとかいろいろ。
+// まず、flowをundefinedにセットして自動的にnon-Activeにして、手持ちのbulletについてもすべて親をundefined
+// にすると。もちろんflowもundefined...だから、ああそうか、playerBulletの場合はなくなっても親は一緒だけど
+// enemyBulletはenemyが倒されることにより消える場合は親の情報がdeleteされるんだっけ。そこね。注意したいのは。
+// って、あー、、resetに書いたんだっけ。
 class enemy extends fireUnit{
   constructor(){
     super(); // bulletVolumeについては、enemyGenerator側で指定するからいい。（non-Activeなやつから切り出して使う）
@@ -841,6 +861,7 @@ class enemy extends fireUnit{
     }
     this.magazine = [];
     this.stock = 0;
+    this.setFlow(undefined); // このときnon-Activeになるので描画されなくなる
   }
 }
 
@@ -853,8 +874,8 @@ function createEnemy(id, _enemy){
 
 function createSimpleEnemy(id, _enemy){
   // id === 0, 1, 2のとき30x30, 24x24, 18x18. たとえば3, 4, 5だったら3を引くなど。
-  _enemy.setParameter(15 - id * 3, 15 - id * 3);
-  // HPは10, 20, 30.
+  // HPは5, 10, 15.
+  _enemy.setParameter(15 - id * 3, 15 - id * 3, id * 5 + 5);
   // 弾数は2, 4, 6. この情報を元にmagazineに装填される
   _enemy.stock = 1 + 1 * id;
   // muzzleに入れるのは各々真正面、2方向、3方向で直線的。角度は30°くらいで。arcHub使う。
@@ -957,8 +978,6 @@ class enemyGenerator extends actor{
   }
   initialize(enemyVolume, bulletVolume){
     // 初期化・・。
-    this.enemySet = [];
-    this.bulletSet = [];
     for(let i = 0; i < enemyVolume; i++){
       this.enemySet.push(new enemy());
     }
@@ -978,7 +997,14 @@ class enemyGenerator extends actor{
     }
   }
   render(){
-    this.enemySet.forEach(function(e){ e.render(); })
+    this.enemySet.forEach(function(e){
+      if(e.isActive){ e.render(); } // activeなものだけrenderする
+    })
+  }
+  reset(){
+    this.enemySet = [];
+    this.bulletSet = [];
+    this.setFlow(undefined);
   }
 }
 // enemyGeneratorはステージセレクトからプレイステートに行くたびに新しいものが用意されるイメージで。
@@ -1193,7 +1219,7 @@ class selectFlow extends flow{
 class playFlow extends flow{
   constructor(stageNumber){
     super();
-    this._gun = new gun(100, 5); // 初期状態での弾の数
+    this._gun = new gun(100, 5); // 初期状態での弾の数と移動スピード
     // いずれはinitializeでパラメータを設定することになりそう。スピードとか大きさとか。
     //this._enemyGenerator = new enemyGenerator(20, 200); // 一度に出現する敵の数、合計の弾の数
     this._enemyGenerator = new enemyGenerator(); // initializeはsetStageで行う
@@ -1396,7 +1422,7 @@ class playFlow extends flow{
       // つまりconstructorに初期の直進オンリーのガンだけかいておいてあとはクリアするたびに
       // 追加されて行って追加されたガンは前のステージでも使えるっていうふうにしようねっていう話。
       this._gun.setPos(60, 240);
-      this._gun.setParameter(15, 15);
+      this._gun.setParameter(15, 15, 50);
 
       // とりあえずめんどくさいので
       let flow_0_0 = new setVelocityHub(3, 0);
@@ -1458,7 +1484,7 @@ class playFlow extends flow{
   }
   reset(){
     this._gun.reset(); // gunの所に書く
-    // this._enemyGenerator.reset(); // enemyGeneratorに書く
+    this._enemyGenerator.reset(); // enemyGeneratorに書く
     this.play_on = false;
   }
 }
