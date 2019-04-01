@@ -175,6 +175,24 @@ class setVelocityHub extends flow{
   }
 }
 
+// (ox, oy)から自分に向けたベクトルが速度になる感じ
+class orientingHub extends flow{
+  constructor(ox, oy, speed){
+    super();
+    this.ox = ox;
+    this.oy = oy;
+    this.speed = speed;
+    this.initialState = ACT;
+  }
+  execute(_bullet){
+    // (ox, oy)から_bulletのposへ向かうベクトルを正規化する。
+    // それにspeedをかけてbulletの速度とする。
+    let angle = atan2(_bullet.pos.y - this.oy, _bullet.pos.x - this.ox);
+    _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
+    this.convert(_bullet);
+  }
+}
+
 // 行列フロー
 class matrixArrow extends flow{
   constructor(a, b, c, d, spanTime = 60){
@@ -1016,6 +1034,7 @@ function createSimpleEnemy(id, _enemy){
   _enemy.bodyHue = id * 5; // 5, 10, 15.
 }
 
+// あ、そうか、スタート位置がposだっけ。だから、一定の位置・・んー。
 class bullet extends actor{
   constructor(type, parent = undefined){
     super();
@@ -1593,14 +1612,11 @@ class playFlow extends flow{
       // 最初の状態では普通のガンと3WAYガンだけ用意しておく。3WAYは威力を落とす感じで。
       // クリアするごとに新しいの増やしていってそれは引き継がれるっていう風にして、
       // ここではenemyGeneratorだけ新しく用意するようにしたいね。
-      // 初期状態でのガンの設定はconstructorに書く・・かも。
-      // つまりconstructorに初期の直進オンリーのガンだけかいておいてあとはクリアするたびに
-      // 追加されて行って追加されたガンは前のステージでも使えるっていうふうにしようねっていう話。
+
+      // gunの大きさ、HPを設定
       this._gun.setPos(60, 240);
-      this._gun.setParameter(15, 15, 50); // gunの大きさ、HPを設定
-
+      this._gun.setParameter(15, 15, 50);
       // 各種shotはgunのメソッドで追加するようにした（ステージクリアで増える）。
-
       this._gun.setFlow(new controlGun());
       this._gun.activate();
 
@@ -1617,19 +1633,19 @@ class playFlow extends flow{
       this._enemyGenerator.setFlow(new generateFlow_line(posArray, span, dx, dy, n, dataSet));
       this._enemyGenerator.activate();
     }else if(this.stageNumber === 2){
-      // ステージ2.
+      // ステージ2. ふぅ・・・・・・・ようやく他のステージを作る余裕が出来た・・・
+      this.backgroundColor(70, 30, 100);
+      // gun関連のメソッドは外側に書くべきでしょうね。
+      // gunの大きさ、HPを設定
+      this._gun.setPos(60, 240);
+      this._gun.setParameter(15, 15, 50);
+      // 各種shotはgunのメソッドで追加するようにした（ステージクリアで増える）。
+      this._gun.setFlow(new controlGun());
+      this._gun.activate();
     }
-  }
-  static createShot(flowSet, cost, hue, wait, damage){
-    // shotを作る～flowSetに配列を入れるとその順にくっつけてcostとかhueとか入れて辞書作ってくれる
-    // もっとも、分岐させる場合はその限りではない（挙動をランダムで変化させるとか）ので個別に作る必要があるけど。
-    for(let i = 1; i < flowSet.length; i++){
-      flowSet[i - 1].addFlow(flowSet[i]);
-    }
-    return {cost:cost, hue:hue, initialFlow:flowSet[0], wait:wait, damage:damage};
   }
   reset(){
-    if(this.nextStateIndex > 1){
+    if(this.nextStateIndex !== 1){ // pauseからresetが呼び出される場合、ここは0なので。
       this._gun.reset();
       this._gun.setFlow(undefined);
     }
@@ -1853,3 +1869,5 @@ function getVector(posX, posY){
   }
   return vecs;
 }
+
+// どうしよう。ステージが作れない（え？）
