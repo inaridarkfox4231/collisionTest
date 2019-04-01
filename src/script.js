@@ -761,12 +761,14 @@ class fireUnit extends actor{
     }*/
     // なのにこの時点でもう2とか1になってるの。ミステリー・・
     if(!this.isActive){ return; }
+    this.currentFlow.execute(this); // gunの場合はここで設定して・・
+    this.myCollider.update({x:this.pos.x - this.w, y:this.pos.y - this.h, w:this.w * 2, h:this.h * 2});
+    // 直後に発射。
     this.magazine.forEach(function(b){
       if(b.isActive){ b.update();} // activeなものだけupdateする
     })
     if(this.wait > 0){ this.wait--; } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
-    this.currentFlow.execute(this);
-    this.myCollider.update({x:this.pos.x - this.w, y:this.pos.y - this.h, w:this.w * 2, h:this.h * 2});
+
   }
   render(){
     this.magazine.forEach(function(b){ if(b.isActive){ b.render(); } });
@@ -1492,20 +1494,23 @@ class playFlow extends flow{
       // つまりconstructorに初期の直進オンリーのガンだけかいておいてあとはクリアするたびに
       // 追加されて行って追加されたガンは前のステージでも使えるっていうふうにしようねっていう話。
       this._gun.setPos(60, 240);
-      this._gun.setParameter(15, 15, 50);
+      this._gun.setParameter(15, 15, 50); // gunの大きさ、HPを設定
 
       // とりあえずめんどくさいので
+      // 直線ショット。色は赤、ダメージは5.
       let flow_0_0 = new setVelocityHub(3, 0);
       let flow_0_1 = new matrixArrow(1.05, 0, 0, 1.05, 240);
       let shot_0 = playFlow.createShot([flow_0_0, flow_0_1], 1, 0, 10, 5);
       this._gun.registShot(shot_0);
 
       //let flow_1_0 = new n_wayHub(10, 0, PI / 4, 1);
+      // 3WAYGun. 色はオレンジ、ダメージは3.
       let flow_1_0 = new n_waySimpleHub(10, 15, 3);
       let flow_1_1 = new matrixArrow(1.01, 0, 0, 0.8, 420);
       let shot_1 = playFlow.createShot([flow_1_0, flow_1_1], 3, 10, 25, 3);
       this._gun.registShot(shot_1);
 
+      // 散開弾。色は黄色、ダメージは1.
       let flow_2_0 = new setVelocityHub(10, 0);
       let flow_2_1 = new matrixArrow(0.98, 0, 0, 0.98, 30)
       let flow_2_2 = new limitedCircularDelayHub(5, 20, 4, 4, 0, PI / 10);
@@ -1539,7 +1544,7 @@ class playFlow extends flow{
       let n = 3;
       // 9個flowがあって、9匹用意することに。
       let dataSet = [];
-      for(let i = 0; i < 9; i++){ dataSet.push({enemyId:0, flowId:i}); }
+      for(let i = 0; i < 9; i++){ dataSet.push({enemyId:i % 3, flowId:i}); }
       this._enemyGenerator.setFlow(new generateFlow_line(posArray, span, dx, dy, n, dataSet));
       this._enemyGenerator.activate();
     }
@@ -1606,6 +1611,38 @@ class pauseFlow extends flow{
     fill(80, 100, 100);
     rect(180, 190 + 30 * this.nextStateIndex, 20, 20);
     pop();
+  }
+}
+
+// playFlowにおいてgunの残機が無くなったらゲームオーバーに移行する。
+// その際、画像はそのままでグラフィックは上書きにする。
+// クリアの時もだけど、pauseからtitleに戻るときのように、playからgameoverやclearに行くときは
+// その前にリセットしてしまう、そのうえでいろいろ表示する。playから移行するのでplayのconvertに書く。
+class gameoverFlow extends flow{
+  constructor(){
+    super();
+    this.initialState = ACT;
+  }
+  execute(_entity){
+    // Zボタン押したらconvertしてタイトルへ。リセットは終わってる。
+  }
+  render(_entity){
+    // 中央に黒い四角とメッセージを表示し、Zボタンを押すとタイトルに戻るようにする。
+    push();
+    pop();
+  }
+}
+
+class clearFlow extends flow{
+  constructor(){
+    super();
+    this.initialState = ACT;
+  }
+  execute(_entity){
+    // ボタン押したらconvertしてタイトルへ。リセットは終わってる。
+  }
+  render(_entity){
+
   }
 }
 // ----------------------------------------------------------------------------------------------- //
