@@ -705,6 +705,8 @@ class fireUnit extends actor{
     this.myCollider = new rectangleCollider(0, 0, this.w * 2, this.h * 2);
     this.maxHP = 0; // 最大HP
     this.currentHP = 0; // 現HP
+    this.animId = 0; // アニメーションの種類（0, 1, 2で出現、ダメージ時、やられたとき）
+    this.animCount = 0; // 100から減っていく感じで。それを元に透明度を指定。
   }
   setPos(x, y){
     this.pos.set(x, y);
@@ -715,6 +717,9 @@ class fireUnit extends actor{
     this.h = h;
     this.maxHP = maxHP;
     this.currentHP = maxHP;
+    // gunなら位置設定、enemyなら出現時にanim関連のパラメータを決める
+    this.animCount = 100;
+    this.animId = 0;
   }
   changeHP(value){
     this.currentHP = constrain(this.currentHP + value, 0, this.maxHP);
@@ -751,22 +756,9 @@ class fireUnit extends actor{
       _bullet.activate(); // used要らない。bullet自身が判断して自分の親のmagazineに戻ればいいだけ。
       _bullet.visible = true;
     }
-    // activeなものはちゃんと3つになっている模様。じゃあなぜ・・
-    /*let c = 0;
-    if(this._type === 'gun'){
-      this.magazine.forEach(function(b){ if(b.isActive){ c++; } })
-      if(c > 0){ console.log('c = %d, setting', c); }
-    }*/
-    // うん。というわけで、この時点では3つactive・・
     this.wait = shot['wait']; // waitを設定
   }
   update(){
-    /*let c = 0;
-    if(this._type === 'gun'){
-      this.magazine.forEach(function(b){ if(b.isActive){ c++; } })
-      if(c > 0){ console.log('c = %d, updating', c); }
-    }*/
-    // なのにこの時点でもう2とか1になってるの。ミステリー・・
     if(!this.isActive){ return; }
     this.currentFlow.execute(this); // gunの場合はここで設定して・・
     this.myCollider.update({x:this.pos.x - this.w, y:this.pos.y - this.h, w:this.w * 2, h:this.h * 2});
@@ -775,7 +767,6 @@ class fireUnit extends actor{
       if(b.isActive){ b.update();} // activeなものだけupdateする
     })
     if(this.wait > 0){ this.wait--; } // waitカウントを減らす(executeの前に書かないと1のとき意味をなさなくなる)
-
   }
   render(){
     this.magazine.forEach(function(b){ if(b.isActive){ b.render(); } });
@@ -784,7 +775,9 @@ class fireUnit extends actor{
   renderBody(){
     // デフォルト. gunの方では変えたりとかする
     push();
-    fill(this.bodyHue, 100, 100);
+    let alpha = this.getAlpha();
+    noStroke();
+    fill(this.bodyHue, 100, 100, alpha);
     rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
     pop();
   }
@@ -798,7 +791,9 @@ class fireUnit extends actor{
     // まずisActiveでないときは何も起きないってことで。
     // activeでもotherが消えてる時は何も起きないよね。
     // 両方activeならbulletのダメージとこっちのHPから挙動を決める。
-    this.changeHP(-other.damage);
+    if(this.animCount === 0){
+      this.changeHP(-other.damage);
+    }
     // console.log(this.currentHP);
     // gunがHP0になった場合・・アニメは置いといて、とりあえずactiveは切る（でないとオーバーキルになる）。
     // if(this.currentHP === 0){ this.reset(); }
@@ -808,6 +803,14 @@ class fireUnit extends actor{
     //else if(other._type === 'playerBullet'){ console.log('enemy %d damaged!!', other.damage); }
   }
   check(){} // 事後処理は個別に用意する
+  // id:0~2, count:99~0.
+  getAlpha(){
+    if(this.animCount === 0){ return 100; }
+    this.animCount--;
+    if(this.animId === 0){ return 100 - this.animCount; } // 出現時
+    else if(this.animId === 1){ return 100 * (1 - Math.floor(this.animCount / 4) % 2) } // ダメージ時
+    else if(this.animId === 2){ return this.animCount; } // やられるとき
+  }
 }
 
 class gun extends fireUnit{
@@ -838,11 +841,12 @@ class gun extends fireUnit{
   }
   renderBody(){
     push();
+    let alpha = this.getAlpha();
     noStroke();
-    fill(30);
+    fill(30, 30, 30, alpha);
     // 本体の描画(やられる時のアニメはここでやる、あと出現時とダメージ後のブリンクを予定してる)
     rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
-    fill(this.bodyHue, 100, 100); // 透明度を指定してアニメを行う
+    fill(this.bodyHue, 100, 100, alpha); // 透明度を指定してアニメを行う
     rect(this.pos.x - this.w + 5, this.pos.y - this.h + 5, 2 * (this.w - 5), 2 * (this.h - 5));
     // 弾数ゲージの描画
     if(this.stock > 0){
@@ -888,6 +892,10 @@ class gun extends fireUnit{
   }
   check(){
     // 準備中
+    if(this.currentHP > 0){
+      this.animId = 1;
+      this.animCount = 100;
+    }
   }
 }
 
@@ -925,7 +933,12 @@ class enemy extends fireUnit{
     this.setFlow(undefined); // このときnon-Activeになるので描画されなくなる
   }
   check(){
-    if(this.currentHP === 0){ this.reset(); } // やられたらリセット
+    if(this.currentHP > 0){
+      this.animId = 1;
+      this.animCount = 100;
+    }else{
+      this.reset(); // やられたらリセット
+    }
   }
 }
 
@@ -1324,7 +1337,18 @@ class playFlow extends flow{
     }
     // とりあえずupdateくらいで
     this._gun.update();
+    if(this._gun.currentHP === 0){ // enemyGeneratorが終了する前に残機ゼロになったらgameover.
+      this.nextStateIndex = 1;
+      this.convert(_entity); flagReset(); return;
+    }
+
     this._enemyGenerator.update(); // updateされない？？
+    // クリアする場合はここで離脱
+    if(!this._enemyGenerator.isActive){
+      this.nextStateIndex = 2;
+      this.convert(_entity); flagReset(); return;
+    }
+
 
     // 衝突判定関連(collisionOccurはとりあえずなしで)
     this._qTree.clear(); // 線型四分木のクリア
@@ -1332,7 +1356,10 @@ class playFlow extends flow{
     // 登録するのはgun, gunの持ってるbullet, Activeなenemy, Activeなenemyの持ってるbullet.
     // fireUnitにもvisibleを設定しないといけない。
 
-    if(this._gun.isActive){ this._qTree.addActor(this._gun); }
+    // animCountが正のときに当たり判定が生じないように修正。
+    if(this._gun.isActive && this._gun.animCount === 0){
+      this._qTree.addActor(this._gun);
+    }
     this._gun.magazine.forEach((b) => {
       if(b.visible){
         this._qTree.addActor(b);
@@ -1340,7 +1367,7 @@ class playFlow extends flow{
     });
     // enemyGeneratorのbulletSetってやった方が節約になりそうな気がする
     this._enemyGenerator.enemySet.forEach((e) => {
-      if(e.isActive){
+      if(e.isActive && e.animCount === 0){
         this._qTree.addActor(e);
       }
     });
@@ -1363,12 +1390,6 @@ class playFlow extends flow{
     if(keyFlag & 64){
       this.nextStateIndex = 0;
       this.convert(_entity); flagReset();
-    }else if(this._gun.currentHP === 0){ // enemyGeneratorが終了する前に残機ゼロになったらgameover.
-      this.nextStateIndex = 1;
-      this.convert(_entity); flagReset();
-    }else if(!this._enemyGenerator.isActive){ // enemyGeneratorが終了したらclear.
-      this.nextStateIndex = 2;
-      this.convert(_entity);
     }
     // だめだ。ここに書いちゃうとHPゲージが0にならないし残機もそのまま残っちゃうよ。
     // controlGunにkilledみたいなのつなげてそっちに移行してもらう。
