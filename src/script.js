@@ -394,14 +394,15 @@ class constantFlow extends flow{
 // 画面中心を中心として5つくらい、多方向にショットを発射しながらぐるぐる回るのとか面白そう。
 // で、あたりまえだけどこれは派生で書くべき。orbitalFlowとかずっと書いてきた。
 // あの蓄積を今こそ使うべきなんだけど枠組みきちんとしてからでいいです。今は別の事をやらないと・・・
-class swing extends flow{
-  constructor(cx, cy, ax, ay, speed){
+class circularFlow extends flow{
+  constructor(cx, cy, ax, ay, speed, phase){
     super();
     this.cx = cx; // データ部分はspeedも含めて辞書扱いにして、入力メソッドも統一したほうがいいかも。
     this.cy = cy; // そうすれば色んな動きを統一的に記述できるようになるしより複雑な動きも実現できる。
     this.ax = ax;
     this.ay = ay;
-    this.speed = speed; // 1のとき60カウントで一周、2で2倍速、3で3倍速（以下略）
+    this.speed = speed; // 1のとき360カウントで一周、2で2倍速、3で3倍速（以下略）
+    this.phase = phase; // 開始phase(0~2*PI).
     this.initialState = PRE;
   }
   execute(_enemy){
@@ -411,19 +412,11 @@ class swing extends flow{
     }
     _enemy.timer.step(this.speed);
     let cnt = _enemy.timer.getCnt();
-    _enemy.pos.set(this.cx + this.ax * sin(cnt * PI / 30), this.cy + this.ay * sin(cnt * PI / 30));
+    _enemy.pos.set(this.cx + this.ax * cos(this.phase + cnt * PI / 180), this.cy + this.ay * sin(this.phase + cnt * PI / 180));
     // convertはしない。倒れたら終わり。
-  }
-  setData(cx, cy, ax, ay, speed){
-    // 再利用のためのデータ決定メソッド
-    this.cx = cx;
-    this.cy = cy;
-    this.ax = ax;
-    this.ay = ay;
-    this.speed = speed;
+    _enemy.fire(); // ここでfire.
   }
 }
-// 円軌道
 
 // ----------------------------------------------------------------------------------------------- //
 // quadTree.
@@ -1047,7 +1040,7 @@ function createOrientedEnemy(id, _enemy){
   let f_0 = new orientingHub(4);
   let f_1 = new matrixArrow(1, 0, 0, 1, 200);
   f_0.addFlow(f_1);
-  _enemy.muzzle.push({cost:1, hue:70, initialFlow:f_0, wait:10, damage:2});
+  _enemy.muzzle.push({cost:1, hue:70, initialFlow:f_0, wait:8, damage:2});
   _enemy.bodyHue = 70;
 }
 
@@ -1276,17 +1269,29 @@ class generateFlow_allKill extends flow{
     // 次に、enemyの情報を入力する（グローバルから）。
     // 最後に、stockの情報を元に弾丸をチャージしてからactivateする。
     if(this.patternId === 0){
-      this.enemySet.push(_generator.enemySet[0]); // とりあえず1匹
+      for(let i = 0; i < 6; i++){
+        this.enemySet.push(_generator.enemySet[i]); // とりあえず1匹
+        let _enemy = this.enemySet[i];
+        createEnemy(3, _enemy);
+        _generator.chargeBullet(_enemy);
+        let f = new circularFlow(500, 240, 100, 140, 1, (PI / 3) * i);
+        _enemy.setFlow(f);
+        _enemy.muzzle[0]['initialFlow'].setOrigin(500, 240);
+        _enemy.activate();
+      }/*
       let _enemy = this.enemySet[0];
       createEnemy(3, _enemy);
       _generator.chargeBullet(_enemy);
+
       let f_0 = new constantFlow(createVector(500, 100), createVector(500, 380), 280);
       let f_1 = new constantFlow(createVector(500, 380), createVector(500, 100), 280);
       f_0.addFlow(f_1);
       f_1.addFlow(f_0);
+      
+      let f_0 = new circularFlow(500, 240, 100, 140, 1, 0);
       _enemy.setFlow(f_0);
       _enemy.muzzle[0]['initialFlow'].setOrigin(600, 240);
-      _enemy.activate();
+      _enemy.activate();*/
     }
   }
   execute(_generator){
