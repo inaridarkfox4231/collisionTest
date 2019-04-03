@@ -18,8 +18,8 @@
 // とりあえず敵倒せるようにするか・・。
 let all;
 let hueSet = [];
-let clickPosX;
-let clickPosY;
+//let clickPosX;
+//let clickPosY;
 let keyFlag;
 
 let collisionCount;
@@ -50,8 +50,8 @@ function setup(){
   let initialFlow = initialize(); // 初期化でもろもろ準備して最後に最初のFlowを返す
   all = new entity(); // entityを準備
   all.setFlow(initialFlow); // initialFlowをセットする
-  clickPosX = -1;
-  clickPosY = -1; // クリックするとpos情報が入る
+  //clickPosX = -1;
+  //clickPosY = -1; // クリックするとpos情報が入る
   keyFlag = 0; // キータイプ情報
   all.activate(); // activate. これですべてが動き出すといいのだけどね。
 
@@ -96,10 +96,11 @@ function initialize(){
 
 // ----------------------------------------------------------------------------------------------- //
 // クリックされたら
+/*
 function mouseClicked(){
   clickPosX = mouseX;
   clickPosY = mouseY;
-}
+}*/
 function keyTyped(){
   if(key === 'q'){ keyFlag |= 1; } // とりあえずQ.
   else if(key === 'z'){ keyFlag |= 2; } // Zは決定、発射に使う
@@ -111,8 +112,8 @@ function keyTyped(){
   else if(key === 'r'){ keyFlag |= 128 } // re: gameoverやclearからの離脱に使う。
 }
 function flagReset(){
-  clickPosX = -1;
-  clickPosY = -1; // リセット
+  //clickPosX = -1;
+  //clickPosY = -1; // リセット
   keyFlag = 0;
 }
 
@@ -177,10 +178,10 @@ class setVelocityHub extends flow{
 
 // (ox, oy)から自分に向けたベクトルが速度になる感じ
 class orientingHub extends flow{
-  constructor(speed){
+  constructor(speed, ox = 0, oy = 0){
     super();
-    this.ox = 0;
-    this.oy = 0;
+    this.ox = ox;
+    this.oy = oy;
     this.speed = speed;
     this.initialState = ACT;
   }
@@ -195,6 +196,83 @@ class orientingHub extends flow{
     let angle = atan2(_bullet.pos.y - this.oy, _bullet.pos.x - this.ox);
     _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
     this.convert(_bullet);
+  }
+}
+
+// homingHub. ベクトルはポインタなのでそれを渡して行先が随時更新されるようにする感じ。
+class homingHub extends flow{
+  constructor(speed, pos){
+    super();
+    this.targetPos = pos;
+    this.speed = speed;
+    this.initialState = ACT;
+  }
+  execute(_bullet){
+    let angle = atan2(this.targetPos.y - _bullet.pos.y, this.targetPos.x - _bullet.pos.x);
+    _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
+    this.convert(_bullet);
+  }
+}
+
+// spiralHub. 撃つたびに方向が変わる。
+class spiralHub extends flow{
+  constructor(bulletSpeed, initialAngle, rollingSpeed){
+    super();
+    this.bulletSpeed = bulletSpeed;
+    this.rollingAngle = initialAngle; // これに足していく感じ。0~360で指定。
+    this.rollingSpeed = rollingSpeed; // 1のとき360回で一周、2のとき180で一周（以下略）
+    this.initialState = ACT;
+  }
+  execute(_bullet){
+    let vx = this.bulletSpeed * cos((this.rollingAngle / 180) * PI);
+    let vy = this.bulletSpeed * sin((this.rollingAngle / 180) * PI);
+    _bullet.setVelocity(vx, vy);
+    this.rollingAngle += this.rollingSpeed;
+    this.convert(_bullet);
+  }
+}
+
+// randomHub. 配列のどれかを出す。multipleは何発撃ってからrevolveするか。
+class randomHub extends flow{
+  constructor(speed, multiple, angleArray){
+    super();
+    this.speed = speed;
+    this.angleArray = angleArray;
+    this.currentIndex = 0;
+    this.initialState = ACT;
+    this.count = 0;
+    this.multiple = multiple;
+  }
+  execute(_bullet){
+    let angle = (this.angleArray[this.currentIndex] / 180) * PI;
+    _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
+    this.count++;
+    if(this.count === this.multiple){
+      let n = this.angleArray.length;
+      this.currentIndex = randomInt(n);
+      this.count = 0;
+    }
+    this.convert(_bullet);
+  }
+}
+
+// 何もしない. 直進するだけ。
+class straight extends flow{
+  constructor(spanTime = -1){
+    super();
+    this.spanTime = spanTime;
+    this.initialState = PRE;
+  }
+  execute(_bullet){
+    if(_bullet.state === PRE){
+      if(this.spanTime > 0){
+        _bullet.timer.setting(this.spanTime);
+        _bullet.setState(ACT);
+      }
+    }
+    _bullet.pos.add(_bullet.velocity);
+    if(_bullet.timer.getCnt() === this.spanTime){ this.convert(_bullet); }
+    if(_bullet.vanish()){ _bullet.setFlow(undefined); }
   }
 }
 
@@ -379,42 +457,132 @@ class constantFlow extends flow{
     }
   }
 }
-// enemyを出現させるときにflowの中身をいじることも考えないといけないかも。同じもの使いまわすなら・・んー。
-// あ、そうか、enemyTemplateを用意しとけば後は出現位置だけが問題で、あとはflowに個別に指定するのも自由だね。
-// 特定の位置を中心に単振動
 
-// うーん、単振動と円運動とたとえば三葉曲線とかもだけど、同じクラスに入れちゃうべきよね・・・
-// リサージュとか複雑なのけっこうあるしね。
-// simpleMoveのような動きの組み合わせ（今までMVFとかで作ってきたやつ）のクラスがあって、
-// こういうswingやcircleみたいなorbital系の動きのクラスがあって、
-// たとえば画面外から出てきて画面外へ去っていく動きのクラスがあって、というイメージ。直線とか、ゆらゆらとか。
-// それをenemyとしてgeneratorに登録して、それとは別に攻撃のタイミングや種類を指定する。
-
-// 初期位相も指定できるようにすれば複数の敵がぐるぐる回るのとか表現できそうね。
-// 画面中心を中心として5つくらい、多方向にショットを発射しながらぐるぐる回るのとか面白そう。
-// で、あたりまえだけどこれは派生で書くべき。orbitalFlowとかずっと書いてきた。
-// あの蓄積を今こそ使うべきなんだけど枠組みきちんとしてからでいいです。今は別の事をやらないと・・・
-class circularFlow extends flow{
-  constructor(cx, cy, ax, ay, speed, phase){
+// easingFlow. easing機能付き、fireの有無は選べる感じ。
+class easingFlow extends constantFlow{
+  constructor(from, to, span, easingId, fire = false){
+    super(from, to, span);
+    this.easingId = easingId;
+    this.fire = fire;
+  }
+  execute(_enemy){
+    if(_enemy.state === PRE){ this.initialize(_enemy); _enemy.setState(ACT); }
+    _enemy.timer.step();
+    let prg = _enemy.timer.getProgress();
+    prg = easingFlow.easing(this.easingId, prg);
+    _enemy.pos.x = map(prg, 0, 1, this.from.x, this.to.x);
+    _enemy.pos.y = map(prg, 0, 1, this.from.y, this.to.y);
+    if(this.fire){ _enemy.fire(); } // fireやるかどうか選べる感じで。
+    if(prg === 1){
+      this.convert(_enemy);
+    }
+  }
+  static easing(i, x){
+    if(i === 0){ return (50 / 23) * (-2 * pow(x, 3) + 3 * pow(x, 2) - 0.54 * x); } // バックインアウト
+    else if(i === 1){ return x + 0.1 * sin(8 * PI * x); } // ぐらぐら
+    else if(i === 2){ return -12 * pow(x, 3) + 18 * pow(x, 2) - 5 * x; } // 大きいバックインアウト
+    else if(i === 3){ return (x / 8) + (7 / 8) * pow(x, 4); } // ゆっくりぎゅーーーん
+    else if(i === 4){ return (7 / 8) + (x / 8) - (7 / 8) * pow(1 - x, 4); } // ぎゅーーんゆっくり
+    else if(i === 5){ return 0.5 * (1 - cos(PI * x)); } // ゆっくりぎゅーんゆっくり
+    else if(i === 6){ return log(x + 1) / log(2);  } // 対数的
+    else if(i === 7){ return pow(x, 6); } // 鋭く！
+    else if(i === 8){ return x * (3 * x - 2); } // おおきくバックからぎゅーん
+		else if(i === 9){ return 1 - Math.sqrt(1 - (x * x)); } // ゆっくりからの・・・・・・ぎゅんっっ
+  }
+}
+// intervalFlow. 一定時間おきに撃ったり撃たなかったり。
+// 30, 40. 280なら30フレームfire,40フレーム待機を4回繰り返してから終了。
+// spanTimeに-1を設定すると自動的に無限ループになる。
+class intervalFlow extends flow{
+  constructor(fireInterval, waitInterval, spanTime){
     super();
+    // すべて整数を想定。
+    this.fireInterval = fireInterval;
+    this.waitInterval = waitInterval;
+    this.spanTime = spanTime;
+    this.intialState = PRE;
+  }
+  execute(_enemy){
+    if(_enemy.state === PRE){
+      _enemy.timer.setting(this.spanTime);
+      _enemy.setState(ACT);
+    }
+    let cnt = _enemy.timer.getCnt();
+    if(cnt % (this.fireInterval + this.waitInterval) < this.fireInterval){ _enemy.fire(); }
+    _enemy.timer.step();
+    if(cnt + 1 === this.spanTime){ this.convert(_enemy); }
+  }
+}
+
+// orbitalFlow.
+class orbitalFlow extends flow{
+  constructor(speed, limit){
+    super();
+    this.speed = speed;
+    this.limit = limit; // -1に指定すると無限ループ
+    this.initialState = ACT;
+  }
+  calcPos(_enemy){
+    // 位置を計算
+  }
+  execute(_enemy){
+    this.calcPos(_enemy);
+    _enemy.timer.step(this.speed);
+    if(this.limit > 0){
+      if(_enemy.timer.getCnt() >= this.limit){
+        this.convert(_enemy);
+      }
+    }
+    _enemy.fire(); // 常にfire.
+  }
+}
+
+// 円軌道。
+class circularFlow extends orbitalFlow{
+  constructor(speed, limit, cx, cy, ax, ay, phase){
+    super(speed, limit);
     this.cx = cx; // データ部分はspeedも含めて辞書扱いにして、入力メソッドも統一したほうがいいかも。
     this.cy = cy; // そうすれば色んな動きを統一的に記述できるようになるしより複雑な動きも実現できる。
     this.ax = ax;
     this.ay = ay;
-    this.speed = speed; // 1のとき360カウントで一周、2で2倍速、3で3倍速（以下略）
     this.phase = phase; // 開始phase(0~2*PI).
     this.initialState = PRE;
   }
-  execute(_enemy){
-    if(_enemy.state === PRE){
-      _enemy.timer.setting();
-      _enemy.setState(ACT);
-    }
-    _enemy.timer.step(this.speed);
+  calcPos(_enemy){
     let cnt = _enemy.timer.getCnt();
     _enemy.pos.set(this.cx + this.ax * cos(this.phase + cnt * PI / 180), this.cy + this.ay * sin(this.phase + cnt * PI / 180));
-    // convertはしない。倒れたら終わり。
-    _enemy.fire(); // ここでfire.
+  }
+}
+
+// 変形円軌道
+class swingCircularFlow extends orbitalFlow{
+  constructor(speed, limit, cx, cy, ax, ay, phase, ratio, swingSpeed){
+    super(speed, limit, cx, cy, ax, ay, phase);
+    this.cx = cx; // データ部分はspeedも含めて辞書扱いにして、入力メソッドも統一したほうがいいかも。
+    this.cy = cy; // そうすれば色んな動きを統一的に記述できるようになるしより複雑な動きも実現できる。
+    this.ax = ax;
+    this.ay = ay;
+    this.phase = phase; // 開始phase(0~2*PI).
+    this.ratio = ratio;
+    this.swingSpeed = swingSpeed;
+    this.initialState = PRE;
+  }
+  calcPos(_enemy){
+    let cnt = _enemy.timer.getCnt();
+    let r = 1 + this.ratio * sin((this.swingSpeed * cnt) * PI / 180);
+    _enemy.pos.set(this.cx + r * this.ax * cos(this.phase + cnt * PI / 180), this.cy + r * this.ay * sin(this.phase + cnt * PI / 180));
+  }
+}
+
+// 回転
+class revolveFlow extends flow{
+  constructor(){
+    super();
+    this.initialState = ACT;
+  }
+  execute(_enemy){
+    _enemy.revolve();
+    this.convert(_enemy);
   }
 }
 
@@ -830,7 +998,7 @@ class fireUnit extends actor{
   check(){
     if(this.currentHP > 0){
       this.animId = 1;
-      this.animCount = 100;
+      this.animCount = 100; // ここ、enemyの場合はなくす。
     }else{
       this.animId = 2;
       this.animCount = 100;
@@ -1013,7 +1181,7 @@ class enemy extends fireUnit{
 // enemyの設定
 function createEnemy(id, _enemy){
   if(id < 3){ createSimpleEnemy(id, _enemy); }
-  else if(id < 4){ createOrientedEnemy(id - 3, _enemy); }
+  else if(id < 4){ createOrientedEnemy(_enemy); }
   // ここに追加していく
   _enemy.visible = true; // 生成するときにtrueにしてやられたらfalseに戻す
 }
@@ -1033,15 +1201,52 @@ function createSimpleEnemy(id, _enemy){
   _enemy.bodyHue = id * 5; // 5, 10, 15.
 }
 
-function createOrientedEnemy(id, _enemy){
+function createOrientedEnemy(_enemy){
   // id === 0のとき20x20. HPは40.
   _enemy.setParameter(10, 10, 40);
   _enemy.stock = 50;
   let f_0 = new orientingHub(4);
-  let f_1 = new matrixArrow(1, 0, 0, 1, 200);
+  let f_1 = new straight();
   f_0.addFlow(f_1);
   _enemy.muzzle.push({cost:1, hue:70, initialFlow:f_0, wait:8, damage:2});
   _enemy.bodyHue = 70;
+}
+
+// とりあえず冗談でいいから作ってみよう
+function createSubBoss1(_enemy){
+  // idは0から5で、円周上の点とか直線状の点を指定するのに使う。
+  _enemy.setParameter(10, 10, 80); // 大きさ10x10, HP80.
+  _enemy.stock = 60; // 1匹当たり60発
+  // muzzleには3種類の弾丸を込める。
+  // 1つ目は中心から現在位置にむけたやつの発射、
+  let f_0_0 = new orientingHub(4);
+  let f_0_1 = new straight();
+  f_0_0.addFlow(f_0_1);
+  _enemy.muzzle.push({cost:1, hue:70, initialFlow:f_0_0, wait:8, damage:3});
+  // 2つ目は5発ずつ5つの方向のいずれかに発射（flowで制御する）、
+  let f_1_0 = new randomHub(4, 5, [140, 160, 180, 200, 220]);
+  let f_1_1 = new matrixArrow(1.05, 0, 0, 1.05, 400);
+  f_1_0.addFlow(f_1_1);
+  _enemy.muzzle.push({cost:1, hue:72, initialFlow:f_1_0, wait:8, damage:4});
+  // 3つ目は中心との距離を上げたり下げたりしながら(spiralで)
+  let f_2_0 = new orientingHub(4);
+  let f_2_1 = new straight();
+  f_2_0.addFlow(f_2_1);
+  _enemy.muzzle.push({cost:1, hue:74, initialFlow:f_2_0, wait:8, damage:3});
+  _enemy.bodyHue = 70;
+}
+
+// 冗談でいいから。
+function createBoss1(_enemy){
+  // 大きさ15x15で、HP240.
+  _enemy.setParameter(15, 15, 240);
+  _enemy.stock = 10; // 10発。
+  let gunPos = all.currentFlow._gun.pos; // こっちの位置（随時更新される）
+  let f_0 = new homingHub(4, gunPos);
+  let f_1 = new matrixArrow(1.01, 0, 0, 1.01, 400);
+  f_0.addFlow(f_1);
+  _enemy.muzzle.push({cost:1, hue:80, initialFlow:f_0, wait:6, damage:4});
+  _enemy.bodyHue = 80;
 }
 
 // あ、そうか、スタート位置がposだっけ。だから、一定の位置・・んー。
@@ -1274,24 +1479,53 @@ class generateFlow_allKill extends flow{
         let _enemy = this.enemySet[i];
         createEnemy(3, _enemy);
         _generator.chargeBullet(_enemy);
-        let f = new circularFlow(500, 240, 100, 140, 1, (PI / 3) * i);
+        let f = new circularFlow(1, -1, 500, 240, 50, 70, (PI / 3) * i);
         _enemy.setFlow(f);
-        _enemy.muzzle[0]['initialFlow'].setOrigin(500, 240);
+        _enemy.muzzle[0]['initialFlow'].setOrigin(500, 240); // 発射の中心を設定
         _enemy.activate();
-      }/*
-      let _enemy = this.enemySet[0];
-      createEnemy(3, _enemy);
+      }
+    }else if(this.patternId === 1){
+      for(let i = 0; i < 6; i++){
+        this.enemySet.push(_generator.enemySet[i]);
+        let _enemy = this.enemySet[i];
+        // muzzleをそれぞれ構成(別立て)
+        createSubBoss1(_enemy);
+        _generator.chargeBullet(_enemy);
+        // 移動フローをそれぞれ構成
+        let x = 500 + 50 * cos((PI / 3) * i);
+        let y = 240 + 70 * sin((PI / 3) * i);
+        let v = createVector(x, y);
+        let w = createVector(450, 40 + 80 * i);
+        let o = createVector(500, 240);
+        let f_0= new easingFlow(o, v, 40, 3);
+        let f_1 = new circularFlow(1, 720, 500, 240, 50, 70, (PI / 3) * i);
+        let f_2 = new easingFlow(v, o, 40, 4);
+        let f_3 = new revolveFlow();
+        let f_4 = new easingFlow(o, w, 40, 3);
+        let f_5 = new intervalFlow(40, 40, 480);
+        let f_6 = new easingFlow(w, o, 40, 4);
+        let f_7 = new revolveFlow();
+        let f_8 = new easingFlow(o, v, 40, 3);
+        let f_9 = new swingCircularFlow(1, 720, 500, 240, 50, 70, (PI / 3) * i, 0.5, 3);
+        let f_10 = new easingFlow(v, o, 40, 4);
+        let f_11 = new revolveFlow();
+        linkingFlow([f_0, f_1, f_2, f_3, f_4, f_5, f_6, f_7, f_8, f_9, f_10, f_11]);
+        // 最初に戻る。
+        _enemy.setFlow(f_0);
+        _enemy.muzzle[0]['initialFlow'].setOrigin(500, 240); // 発射の中心を設定
+        _enemy.muzzle[2]['initialFlow'].setOrigin(500, 240); // 発射の中心を設定
+        // activate.
+        _enemy.activate();
+      }
+      // ボス作るかもだけど後回し
+      this.enemySet.push(_generator.enemySet[6]);
+      let _enemy = this.enemySet[6];
+      createBoss1(_enemy);
+      _enemy.setPos(500, 240);
       _generator.chargeBullet(_enemy);
-
-      let f_0 = new constantFlow(createVector(500, 100), createVector(500, 380), 280);
-      let f_1 = new constantFlow(createVector(500, 380), createVector(500, 100), 280);
-      f_0.addFlow(f_1);
-      f_1.addFlow(f_0);
-      
-      let f_0 = new circularFlow(500, 240, 100, 140, 1, 0);
-      _enemy.setFlow(f_0);
-      _enemy.muzzle[0]['initialFlow'].setOrigin(600, 240);
-      _enemy.activate();*/
+      let f = new intervalFlow(30, 60, -1);
+      _enemy.setFlow(f);
+      _enemy.activate();
     }
   }
   execute(_generator){
@@ -1708,8 +1942,8 @@ class playFlow extends flow{
       // 各種shotはgunのメソッドで追加するようにした（ステージクリアで増える）。
       this._gun.setFlow(new controlGun());
       this._gun.activate();
-      this._enemyGenerator.initialize(6, 300);
-      this._enemyGenerator.setFlow(new generateFlow_allKill(0));
+      this._enemyGenerator.initialize(7, 370);
+      this._enemyGenerator.setFlow(new generateFlow_allKill(1));
       this._enemyGenerator.activate();
     }
   }
@@ -1842,6 +2076,21 @@ function connectFlows(flowSet, idSet, destinationSet){
   }
 }
 
+// 直線的につなげる
+function lineFlow(flowSet){
+  for(let i = 0; i < flowSet.length - 1; i++){
+    flowSet[i].addFlow(flowSet[i + 1]);
+  }
+}
+
+// linking.
+function linkingFlow(flowSet){
+  for(let i = 0; i < flowSet.length - 1; i++){
+    flowSet[i].addFlow(flowSet[i + 1]);
+  }
+  flowSet[flowSet.length - 1].addFlow(flowSet[0]);
+}
+
 // -------------------------------------------------------------------------------------------------- //
 // utility.
 function constSeq(c, n){
@@ -1940,3 +2189,19 @@ function getVector(posX, posY){
 }
 
 // どうしよう。ステージが作れない（え？）
+// 当たった時の反応について
+// ほとんどのアクションやシューティング（ボンバーマンは特殊）ではこっちにはブリンクあるけど向こうにはないから、
+// 敵だけブリンク無しっていうのもあり。それと、弾丸が消える判定について、それが敵を倒す場合は消えないような
+// 処理っていうのをあっちでやってたからそれも実装するべき。checkの段階で倒れてるかどうか決まってるからいけるはず。
+// checkで引数にotherを取る。（倒せない時だけ消える）（今の仕様だと常に消えるようになってる）
+
+// 1. 倒す場合は弾が消えない処理を追加
+// 2. 敵に関してはブリンクを無くす
+// 3. ステージ構成もうちょっと工夫したいかな（それ以前に敵の出し方HPダメージ全部適当だから）
+// 4. スコア作るのはもうちょっとあとで
+// 5. bulletHell同じの作ってみる？練習がてら。
+// 出現するときは4つに分けられたのがぎゅっと、やられるときはその逆回しにする感じで。
+
+// enemyが画面外に出ていなくなる場合はresetからのsetFlow(undefined)で問題ない、よ。そういう移動flowを検討中。
+
+// 発射のタイミングや発射の有無と移動に関するフローを分けて記述することができないか思案中。
