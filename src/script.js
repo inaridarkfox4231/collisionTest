@@ -971,7 +971,17 @@ class fireUnit extends actor{
     let alpha = this.getAlpha();
     noStroke();
     fill(this.bodyHue, 100, 100, alpha);
-    rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
+    if(this.animCount === 0){
+      rect(this.pos.x - this.w, this.pos.y - this.h, 2 * this.w, 2 * this.h);
+    }else{
+      let diff = 0;
+      if(this.animId === 0){ diff = this.animCount / 2; }
+      else if(this.animId === 2){ diff = 50 - (this.animCount / 2); }
+      rect(this.pos.x - this.w - diff, this.pos.y - this.h - diff, this.w, this.h);
+      rect(this.pos.x + diff, this.pos.y - this.h - diff, this.w, this.h);
+      rect(this.pos.x - this.w - diff, this.pos.y + diff, this.w, this.h);
+      rect(this.pos.x + diff, this.pos.y + diff, this.w, this.h);
+    }
     pop();
   }
   reset(){} // リセット処理。gunの場合はtitleに戻るとき発動、enemyの場合はやられたときに発動
@@ -994,16 +1004,6 @@ class fireUnit extends actor{
     // 監視していて残機0を読み取ったらgameoverにconvertする。
     //if(other._type === 'enemyBullet'){ console.log('gun %d damaged!!', other.damage); }
     //else if(other._type === 'playerBullet'){ console.log('enemy %d damaged!!', other.damage); }
-  }
-  check(){
-    if(this.currentHP > 0){
-      this.animId = 1;
-      this.animCount = 100; // ここ、enemyの場合はなくす。
-    }else{
-      this.animId = 2;
-      this.animCount = 100;
-      this.reset(); // やられたらリセット
-    }
   }
   // id:0~2, count:99~0.
   getAlpha(){
@@ -1108,6 +1108,16 @@ class gun extends fireUnit{
     // resetするのはgameoverから行く場合とclear, pauseから行く場合があって、
     // gameoverから行く場合はupdateの中でsetFlow(undefined)する感じ。それ以外は追加する。
   }
+  check(){
+    if(this.currentHP > 0){
+      this.animId = 1;
+      this.animCount = 100; // ここ、enemyの場合はなくす。
+    }else{
+      this.animId = 2;
+      this.animCount = 100;
+      this.reset(); // やられたらリセット
+    }
+  }
   // cost: 一度に消費する弾数
   // hue: 弾の色
   // initialFlow: 弾にセットされるflow. 最後はないので自動的にinActivate.
@@ -1175,6 +1185,21 @@ class enemy extends fireUnit{
     this.magazine = [];
     this.stock = 0;
     //this.setFlow(undefined); // このときnon-Activeになるので描画されなくなる
+  }
+  check(){
+    if(this.currentHP === 0){
+      this.animId = 2;
+      this.animCount = 100;
+      this.reset(); // やられたらリセット
+    }/*
+    if(this.currentHP > 0){
+      this.animId = 1;
+      this.animCount = 100; // ここ、enemyの場合はなくす。
+    }else{
+      this.animId = 2;
+      this.animCount = 100;
+      this.reset(); // やられたらリセット
+    }*/
   }
 }
 
