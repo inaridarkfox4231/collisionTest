@@ -358,6 +358,26 @@ class n_waySimpleHub extends flow{
 // かませるmatrixは基本1.01の0.8, これで鋭く曲がる。たとえば10, 15, 3で1.01, 0, 0, 0.8だと質の良い3Wayになる。
 // 1.01の方を大きくするとより遠くでまっすぐになるようになり。0.8を小さくしても同様の効果が得られる感じ。計算で出せるはず。
 
+// いくつか候補があって順繰りに定める感じ
+class rotaryHub extends flow{
+  constructor(speed, angleArray){
+    super();
+    this.angleArray = angleArray;
+    this.speed = speed;
+    this.currentIndex = 0;
+    this.initialState = ACT;
+  }
+  execute(_bullet){
+    let angle = (this.angleArray[this.currentIndex] / 180) * PI;
+    console.log(this.speed);
+    console.log(angle);
+    _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
+    console.log(_bullet.velocity);
+    this.currentIndex = (this.currentIndex + 1) % this.angleArray.length;
+    this.convert(_bullet);
+  }
+}
+
 // Gun用に作り替えよう。まあ、そのうち整理するけどね・・・
 // count * intervalだけのタイマーをセットする。limitまでいくとリセット。
 // すべてのタイマーは1フレームでセットし終わるので毎フレームの更新などは存在しない。
@@ -1028,6 +1048,7 @@ class gun extends fireUnit{
     this.registShot_0();
     this.registShot_1();
     this.registShot_2();
+    this.registShot_3();
   }
   setParameter(w, h, maxHP){
     // パラメータこっちで。HPとかも・・？
@@ -1151,6 +1172,14 @@ class gun extends fireUnit{
     f2.addFlow(f3);
     let shot_2 = {cost:20, hue:17, initialFlow:f0, wait:40, damage:1};
     this.registShot(shot_2);
+  }
+  registShot_3(){
+    // いわゆるショットガン
+    let f0 = new rotaryHub(10, [-30, 0, 30]);
+    let f1 = new matrixArrow(1.05, 0, 0, 1.05, 10);
+    f0.addFlow(f1);
+    let shot_3 = {cost:3, hue:35, initialFlow:f0, wait:80, damage:20};
+    this.registShot(shot_3);
   }
 }
 
@@ -2230,3 +2259,6 @@ function getVector(posX, posY){
 // enemyが画面外に出ていなくなる場合はresetからのsetFlow(undefined)で問題ない、よ。そういう移動flowを検討中。
 
 // 発射のタイミングや発射の有無と移動に関するフローを分けて記述することができないか思案中。
+
+// 各ステージを作ってスコアシステム用意して新しいガンを手に入れるくだりを用意して
+// HPやダメージの調整して・・やること多過ぎ。
