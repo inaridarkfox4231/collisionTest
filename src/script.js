@@ -303,7 +303,10 @@ class straight extends flow{
       }
     }
     _bullet.pos.add(_bullet.velocity);
-    if(_bullet.timer.getCnt() === this.spanTime){ this.convert(_bullet); }
+    _bullet.timer.step();
+    if(_bullet.timer.getCnt() === this.spanTime){
+      this.convert(_bullet);
+    }
     if(_bullet.vanish()){ _bullet.setFlow(undefined); }
   }
 }
@@ -404,6 +407,22 @@ class rotaryHub extends flow{
     _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
     this.currentIndex = (this.currentIndex + 1) % this.angleArray.length;
     this.convert(_bullet);
+  }
+}
+
+// 普通のロータリー
+class rotary extends flow{
+  constructor(){
+    super();
+    this.currentIndex = 0;
+    this.initialState = ACT;
+  }
+  execute(_bullet){
+    this.convert(_bullet);
+    this.currentIndex = (this.currentIndex + 1) % this.convertList.length;
+  }
+  convert(_bullet){
+    _bullet.setFlow(this.convertList[this.currentIndex]);
   }
 }
 
@@ -1358,22 +1377,48 @@ function createBoss1(_enemy){
 
 function createBoss2(_enemy){
   // 大きさ15x15でHP480.
-  // 攻撃パターン1: ある範囲のうち6つの方向にランダムでガトリング20発を延々と80/20サイクルで。
+  // 攻撃パターン1: 全方位のうち15個の方向に20発ずつガトリング発射
   // HPが320を切ったらチェンジ
-  // 攻撃パターン2: スパイラル。
+  // 攻撃パターン2: スパイラル
   // HPが160を切ったらチェンジ
-  // 攻撃パターン3: 2つの位置に20発ずつ弾を放ってそれがスパイラル。一度に40出す。
+  // 攻撃パターン3: 2つの位置に5発ずつ弾を放ってそれがスパイラル。一度に10出す。
   // というわけで弾の総数は600くらいを想定。
   _enemy.setParameter(15, 15, 480);
   _enemy.stock = 600; // 600発.
   let f_0_0 = new multiRandomFanHub(4, 15, 0, 360, 300);
   let f_0_1 = new straight();
   f_0_0.addFlow(f_0_1);
+
+  let f_1_0 = new rotary();
+  let f_1_1 = new spiralHub(6, 0, 10);
+  let f_1_2 = new spiralHub(6, 72, 10);
+  let f_1_3 = new spiralHub(6, 144, 10);
+  let f_1_4 = new spiralHub(6, 216, 10);
+  let f_1_5 = new spiralHub(6, 288, 10);
+  let f_1_6 = new straight();
+  let flowSet = [f_1_1, f_1_2, f_1_3, f_1_4, f_1_5];
+  f_1_0.convertList = flowSet;
+  flowSet.forEach(function(f){ f.addFlow(f_1_6); })
+
+  let f_2_0 = new n_waySimpleHub(-2, 6, 2);
+  let f_2_1 = new straight(30);
+  let f_2_2 = new rotary();
+  let f_2_3 = new spiralHub(6, 0, 10);
+  let f_2_4 = new spiralHub(6, 72, 10);
+  let f_2_5 = new spiralHub(6, 144, 10);
+  let f_2_6 = new spiralHub(6, 216, 10);
+  let f_2_7 = new spiralHub(6, 288, 10);
+  let f_2_8 = new straight();
+  f_2_0.addFlow(f_2_1);
+  f_2_1.addFlow(f_2_2);
+  flowSet = [f_2_3, f_2_4, f_2_5, f_2_6, f_2_7];
+  f_2_2.convertList = flowSet;
+  flowSet.forEach(function(f){ f.addFlow(f_2_8); })
+
   _enemy.muzzle.push({cost:15, hue:30, initialFlow:f_0_0, wait:4, damage:4});
-  let f_1_0 = new spiralHub(6, 180, 10);
-  let f_1_1 = new straight();
-  f_1_0.addFlow(f_1_1);
-  _enemy.muzzle.push({cost:1, hue:34, initialFlow:f_1_0, wait:2, damage:5});
+  _enemy.muzzle.push({cost:5, hue:34, initialFlow:f_1_0, wait:2, damage:5});
+  _enemy.muzzle.push({cost:10, hue:38, initialFlow:f_2_0, wait:4, damage:4});
+
   _enemy.bodyHue = 30;
 }
 
@@ -1427,7 +1472,7 @@ class bullet extends actor{
     if(!this.visible){ return; }
     // その色の四角形を描く、位置に。
     push();
-    fill(this.hueValue, 100, 100);
+    fill(this.hueValue, 100, 50);
     noStroke();
     rect(this.pos.x - this.w, this.pos.y - this.h, this.w * 2, this.h * 2);
     pop();
@@ -1665,8 +1710,13 @@ class generateFlow_allKill extends flow{
       let f_1 = new limitedRevolveHub(320); // HPが320を切るとrevolveかつ違う行き先へつながる感じ。
       f_0.addFlow(f_1);
       f_1.addFlow(f_0);
-      let f_2 = new circularFlow(7, -1, 440, 240, 40, 40, PI);
+      let f_2 = new circularFlow(6, 360, 440, 240, 40, 40, PI);
+      let f_3 = new limitedRevolveHub(160);
       f_1.addFlow(f_2);
+      f_2.addFlow(f_3);
+      f_3.addFlow(f_2);
+      let f_4 = new intervalFlow(80, 20, -1);
+      f_3.addFlow(f_4);
       _enemy.setFlow(f_0);
       _enemy.activate();
     }
