@@ -256,6 +256,38 @@ class randomHub extends flow{
   }
 }
 
+// multiRandomFanHub. 扇状のどこかにがーっと。
+// たとえば150~210ならその範囲の角度を一度に5つ決めてそれらについて順繰りに割り当て、
+// で、それを20回、100個の弾丸が通り抜けたら再シャッフルみたいな。
+class multiRandomFanHub extends flow{
+  constructor(speed, n, a1, a2, multiple){
+    super();
+    this.angleArray = [];
+    for(let i = 0; i < n; i++){ this.angleArray.push(a1 + random(a2 - a1)); }
+    this.a1 = a1;
+    this.a2 = a2;
+    this.speed = speed;
+    this.count = 0;
+    this.multiple = multiple;
+    this.currentIndex = 0;
+    this.initialState = ACT;
+  }
+  execute(_bullet){
+    let angle = (this.angleArray[this.currentIndex] / 180) * PI;
+    _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
+    this.count++;
+    this.currentIndex = (this.currentIndex + 1) % this.angleArray.length;
+    if(this.count === this.multiple){
+      for(let i = 0; i < this.angleArray.length; i++){
+        this.angleArray[i] = this.a1 + random(this.a2 - this.a1);
+      }
+      this.currentIndex = 0;
+      this.count = 0;
+    }
+    this.convert(_bullet);
+  }
+}
+
 // 何もしない. 直進するだけ。
 class straight extends flow{
   constructor(spanTime = -1){
@@ -369,10 +401,7 @@ class rotaryHub extends flow{
   }
   execute(_bullet){
     let angle = (this.angleArray[this.currentIndex] / 180) * PI;
-    console.log(this.speed);
-    console.log(angle);
     _bullet.setVelocity(this.speed * cos(angle), this.speed * sin(angle));
-    console.log(_bullet.velocity);
     this.currentIndex = (this.currentIndex + 1) % this.angleArray.length;
     this.convert(_bullet);
   }
@@ -594,7 +623,7 @@ class swingCircularFlow extends orbitalFlow{
   }
 }
 
-// 回転
+// ガンの種類を変える
 class revolveFlow extends flow{
   constructor(){
     super();
@@ -603,6 +632,26 @@ class revolveFlow extends flow{
   execute(_enemy){
     _enemy.revolve();
     this.convert(_enemy);
+  }
+}
+
+// ガンの種類を変えつつ違うflowに接続する
+class limitedRevolveHub extends flow{
+  constructor(limitHP){
+    super();
+    this.initialState = ACT;
+    this.limitHP = limitHP;
+    this.currentIndex = 0;
+  }
+  execute(_enemy){
+    if(_enemy.currentHP < this.limitHP){
+      _enemy.revolve();
+      this.currentIndex = 1;
+    }
+    this.convert(_enemy);
+  }
+  convert(_enemy){
+    _enemy.setFlow(this.convertList[this.currentIndex]); // 0か1か。
   }
 }
 
@@ -1123,7 +1172,9 @@ class gun extends fireUnit{
     //this.currentMuzzleIndex = 0;
     this.cursor = 0;
     this.wait = 0;
-    this.magazine.forEach(function(b){ b.setFlow(undefined); }) // magazine...enemyでは空にする
+    this.magazine.forEach(function(b){
+      if(b.isActive){ b.setFlow(undefined); }
+    }) // magazine...enemyでは空にする
     // controlGunはセットしっぱなしでいい。
     //this.inActivate();
     // resetするのはgameoverから行く場合とclear, pauseから行く場合があって、
@@ -1208,8 +1259,10 @@ class enemy extends fireUnit{
     this.cursor = 0;
     this.wait = 0;
     for(let i = 0; i < this.magazine.length; i++){
-      this.magazine[i].setFlow(undefined); // とりあえず消滅してもらう。このとき親がいないとエラーになるので先に書く。
-      this.magazine[i].setParent(undefined); // 親の履歴を消す（再利用化）
+      let b = this.magazine[i];
+      // とりあえず消滅してもらう。このとき親がいないとエラーになるので先に書く。
+      if(b.isActive){ b.setFlow(undefined); }
+      b.setParent(undefined); // 親の履歴を消す（再利用化）
     }
     this.magazine = [];
     this.stock = 0;
@@ -1279,11 +1332,11 @@ function createSubBoss1(_enemy){
   _enemy.muzzle.push({cost:1, hue:70, initialFlow:f_0_0, wait:8, damage:3});
   // 2つ目は5発ずつ5つの方向のいずれかに発射（flowで制御する）、
   let f_1_0 = new randomHub(4, 5, [140, 160, 180, 200, 220]);
-  let f_1_1 = new matrixArrow(1.05, 0, 0, 1.05, 400);
+  let f_1_1 = new matrixArrow(1.02, 0, 0, 1.02, 400);
   f_1_0.addFlow(f_1_1);
-  _enemy.muzzle.push({cost:1, hue:72, initialFlow:f_1_0, wait:8, damage:4});
+  _enemy.muzzle.push({cost:1, hue:72, initialFlow:f_1_0, wait:6, damage:4});
   // 3つ目は中心との距離を上げたり下げたりしながら(spiralで)
-  let f_2_0 = new orientingHub(4);
+  let f_2_0 = new orientingHub(3);
   let f_2_1 = new straight();
   f_2_0.addFlow(f_2_1);
   _enemy.muzzle.push({cost:1, hue:74, initialFlow:f_2_0, wait:8, damage:3});
@@ -1301,6 +1354,27 @@ function createBoss1(_enemy){
   f_0.addFlow(f_1);
   _enemy.muzzle.push({cost:1, hue:80, initialFlow:f_0, wait:6, damage:4});
   _enemy.bodyHue = 80;
+}
+
+function createBoss2(_enemy){
+  // 大きさ15x15でHP480.
+  // 攻撃パターン1: ある範囲のうち6つの方向にランダムでガトリング20発を延々と80/20サイクルで。
+  // HPが320を切ったらチェンジ
+  // 攻撃パターン2: スパイラル。
+  // HPが160を切ったらチェンジ
+  // 攻撃パターン3: 2つの位置に20発ずつ弾を放ってそれがスパイラル。一度に40出す。
+  // というわけで弾の総数は600くらいを想定。
+  _enemy.setParameter(15, 15, 480);
+  _enemy.stock = 600; // 600発.
+  let f_0_0 = new multiRandomFanHub(4, 15, 0, 360, 300);
+  let f_0_1 = new straight();
+  f_0_0.addFlow(f_0_1);
+  _enemy.muzzle.push({cost:15, hue:30, initialFlow:f_0_0, wait:4, damage:4});
+  let f_1_0 = new spiralHub(6, 180, 10);
+  let f_1_1 = new straight();
+  f_1_0.addFlow(f_1_1);
+  _enemy.muzzle.push({cost:1, hue:34, initialFlow:f_1_0, wait:2, damage:5});
+  _enemy.bodyHue = 30;
 }
 
 // あ、そうか、スタート位置がposだっけ。だから、一定の位置・・んー。
@@ -1556,7 +1630,7 @@ class generateFlow_allKill extends flow{
         let f_2 = new easingFlow(v, o, 40, 4);
         let f_3 = new revolveFlow();
         let f_4 = new easingFlow(o, w, 40, 3);
-        let f_5 = new intervalFlow(40, 40, 480);
+        let f_5 = new intervalFlow(30, 30, 600);
         let f_6 = new easingFlow(w, o, 40, 4);
         let f_7 = new revolveFlow();
         let f_8 = new easingFlow(o, v, 40, 3);
@@ -1579,6 +1653,21 @@ class generateFlow_allKill extends flow{
       _generator.chargeBullet(_enemy);
       let f = new intervalFlow(30, 60, -1);
       _enemy.setFlow(f);
+      _enemy.activate();
+    }else if(this.patternId === 2){
+      // ボス2.
+      this.enemySet.push(_generator.enemySet[0]);
+      let _enemy = this.enemySet[0];
+      createBoss2(_enemy);
+      _enemy.setPos(400, 240);
+      _generator.chargeBullet(_enemy);
+      let f_0 = new intervalFlow(80, 20, 100);
+      let f_1 = new limitedRevolveHub(320); // HPが320を切るとrevolveかつ違う行き先へつながる感じ。
+      f_0.addFlow(f_1);
+      f_1.addFlow(f_0);
+      let f_2 = new circularFlow(7, -1, 440, 240, 40, 40, PI);
+      f_1.addFlow(f_2);
+      _enemy.setFlow(f_0);
       _enemy.activate();
     }
   }
@@ -1669,7 +1758,7 @@ class selectFlow extends flow{
   constructor(){
     super();
     this.initialState = ACT;
-    this.limit = 3;
+    this.limit = 4;
     this.nextStateIndex = 0;
   }
   execute(_entity){
@@ -1705,6 +1794,8 @@ class selectFlow extends flow{
     rect(140, 140, 80, 30);
     fill(20, 100, 100);
     rect(140, 180, 80, 30);
+    fill(30, 100, 100);
+    rect(140, 220, 80, 30);
   }
 }
 
@@ -1998,6 +2089,16 @@ class playFlow extends flow{
       this._gun.activate();
       this._enemyGenerator.initialize(7, 370);
       this._enemyGenerator.setFlow(new generateFlow_allKill(1));
+      this._enemyGenerator.activate();
+    }else if(this.stageNumber === 3){
+      // ステージ3のようなもの
+      this.backgroundColor = color(40, 30, 100);
+      this._gun.setPos(30, 240);
+      this._gun.setParameter(15, 15, 80);
+      this._gun.setFlow(new controlGun());
+      this._gun.activate();
+      this._enemyGenerator.initialize(1, 600);
+      this._enemyGenerator.setFlow(new generateFlow_allKill(2));
       this._enemyGenerator.activate();
     }
   }
