@@ -2147,6 +2147,9 @@ class playFlow extends flow{
       this._gun.setParameter(15, 15, 80);
       this._gun.setFlow(new controlGun());
       this._gun.activate();
+      // enemyGeneratorでは出現させる敵の最大数と敵に持たせる弾の数の総数を指定する
+      // あとはflowを順繰りにセットするだけ
+      // それらをすべてこなしたらステージクリア
       this._enemyGenerator.initialize(1, 600);
       this._enemyGenerator.setFlow(new generateFlow_allKill(2));
       this._enemyGenerator.activate();
